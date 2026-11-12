@@ -23,7 +23,7 @@ This is a macOS port of [CubE135/hyperx-cloud-flight-s-battery-monitor](https://
 
 ## Features
 
-- **Battery in the menu bar.** The icon is a compact battery, no wider than AlDente's. It is filled to the charge level and shows the percentage. Below 15% the numbers turn orange.
+- **Battery in the menu bar.** The icon is a compact battery. It is filled to the charge level and shows the percentage. Below 15% the numbers turn orange.
 - **Menu.** It shows the charge, the voltage and the last update time. If the headset is off, it shows the last known value.
 - **Estimated time left.** The app learns how fast your headset drains: it adds up the percent lost and the hours the headset was actually on. Time while the headset is off, the Mac sleeps, the headset charges or sits at 100% on the cable is ignored, and so is the ±1% jitter of the readings. The estimate covers roughly the last 100 hours of use, so it follows battery wear and your habits. It appears after a few hours of use.
 - **Headset buttons.** The four buttons on the left ear cup work as Mac media keys or switch the sound output. Each button can have its own single-press and double-press action.
@@ -80,7 +80,7 @@ A double press is a second press of the same button within 300 ms. If a button h
 
 **Requirements**
 
-1. **NGENUITY on Windows, once.** Set all four buttons to multimedia actions in NGENUITY. Otherwise the headset first performs its own action, such as mic monitoring or the game/chat balance. The setting is stored in the headset.
+1. **NGENUITY on Windows, once.** Set all four buttons to multimedia actions in NGENUITY. The default actions change the headset's internal state (mic monitoring, mic mute, game/chat balance), and the headset does that on every press, whatever the Mac does with it. The setting is stored in the headset. Any Windows machine works, including a VM such as Parallels Desktop with the dongle passed through.
 2. **Accessibility permission for media keys.** Go to System Settings → Privacy & Security → Accessibility and turn on HyperX Battery. **Allow Media Control…** in the menu brings up the system prompt. The buttons start working as soon as the permission is granted, without restarting the app. Switching the sound output does not need the permission.
 
 > The ad-hoc signature changes with every rebuild, and macOS then treats the app as a different one. After an update the toggle may still look on, but the old permission no longer applies. Choose **Allow Media Control…** in the menu: the app resets its stale entry and shows the system prompt again.
