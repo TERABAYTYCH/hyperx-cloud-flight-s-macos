@@ -1,11 +1,8 @@
 #!/bin/zsh
-# Перерисовать иконку приложения (docs/app-icon.png → Resources/AppIcon.icns) и картинку значков для README.
+# Собрать Resources/AppIcon.icns из docs/app-icon.png (1024×1024) и перерисовать картинку значков для README.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p build
-
-swiftc tools/makeicon/main.swift Sources/HyperXLogo.swift -o build/makeicon
-build/makeicon docs/app-icon.png
 
 ICONSET=build/AppIcon.iconset
 rm -rf "$ICONSET" && mkdir -p "$ICONSET"
@@ -17,4 +14,4 @@ iconutil -c icns "$ICONSET" -o Resources/AppIcon.icns
 
 swiftc tools/icongallery/main.swift Sources/BatteryIcon.swift Sources/HyperXLogo.swift -o build/icongallery
 build/icongallery docs/menu-bar-icons.png
-echo "Готово: Resources/AppIcon.icns, docs/app-icon.png, docs/menu-bar-icons.png"
+echo "Готово: Resources/AppIcon.icns, docs/menu-bar-icons.png"

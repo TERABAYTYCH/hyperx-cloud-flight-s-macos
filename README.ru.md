@@ -112,7 +112,7 @@ open "/Applications/HyperX Battery.app"
 ```bash
 HYPERX_DEBUG=1 "build/HyperX Battery.app/Contents/MacOS/HyperXBattery"   # все HID-отчёты и действия в stderr
 swiftc tools/hidguide.swift -o build/hidguide && build/hidguide build/capture.log   # пошаговый логгер кнопок
-tools/makeicons.sh   # перерисовать иконку приложения и docs/menu-bar-icons.png
+tools/makeicons.sh   # собрать AppIcon.icns из docs/app-icon.png и перерисовать docs/menu-bar-icons.png
 ```
 
 | Путь | Что внутри |

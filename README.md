@@ -112,7 +112,7 @@ How this differs from the Windows version:
 ```bash
 HYPERX_DEBUG=1 "build/HyperX Battery.app/Contents/MacOS/HyperXBattery"   # all HID reports and actions to stderr
 swiftc tools/hidguide.swift -o build/hidguide && build/hidguide build/capture.log   # step-by-step button logger
-tools/makeicons.sh   # redraw the app icon and docs/menu-bar-icons.png
+tools/makeicons.sh   # build AppIcon.icns from docs/app-icon.png and redraw docs/menu-bar-icons.png
 ```
 
 | Path | Contents |

@@ -80,7 +80,7 @@ final class HeadsetMonitor {
 
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-       debugLog("IOHIDManagerOpen -> \(hex(result))")
+        debugLog("IOHIDManagerOpen -> \(hex(result))")
         restartPolling()
     }
 
@@ -99,7 +99,7 @@ final class HeadsetMonitor {
         var report = [UInt8](repeating: 0, count: Self.outputReportLength)
         report.replaceSubrange(0..<Self.batteryRequest.count, with: Self.batteryRequest)
         let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, Self.requestReportID, report, report.count)
-       debugLog("SetReport -> \(hex(result))")
+        debugLog("SetReport -> \(hex(result))")
 
         if result != kIOReturnSuccess {
             state = .noResponse
@@ -121,7 +121,7 @@ final class HeadsetMonitor {
     // MARK: - Устройство
 
     private func attach(_ newDevice: IOHIDDevice) {
-       debugLog("подключено устройство")
+        debugLog("подключено устройство")
         if let device { releaseDevice(device) }
         device = newDevice
 
@@ -141,7 +141,7 @@ final class HeadsetMonitor {
 
     private func detach(_ removed: IOHIDDevice) {
         guard removed == device else { return }
-       debugLog("устройство отключено")
+        debugLog("устройство отключено")
         releaseDevice(removed)
         device = nil
         timeoutTimer?.invalidate()
@@ -156,7 +156,7 @@ final class HeadsetMonitor {
     }
 
     private func handle(reportID: UInt32, bytes: [UInt8]) {
-       debugLog("in rid=0x\(String(reportID, radix: 16)) len=\(bytes.count): " + bytes.map { String(format: "%02x", $0) }.joined(separator: " "))
+        debugLog("in rid=0x\(String(reportID, radix: 16)) len=\(bytes.count): " + bytes.map { String(format: "%02x", $0) }.joined(separator: " "))
         guard bytes.count >= 8 else { return }
 
         if bytes[3] == 0x02, bytes[5] != 0 || bytes[6] != 0 {
@@ -167,16 +167,16 @@ final class HeadsetMonitor {
             lastReading = (percent, millivolts, Date())
             state = .battery(percent: percent, millivolts: millivolts)
         } else if bytes[3] == 0x01, bytes[4] == 0x01 {
-           debugLog("гарнитура включилась")
+            debugLog("гарнитура включилась")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.requestBattery() }
         } else if bytes[3] == 0x01, bytes[4] == 0x03 {
-           debugLog("гарнитура выключается")
+            debugLog("гарнитура выключается")
             timeoutTimer?.invalidate()
             state = .noResponse
         } else if reportID == 0x0B, bytes[3] == 0x04, bytes.count >= 9 {
             // Кнопки: 0b 00 bb 04 <верх> <лево> <право> <низ> <7.1> — в нажатой позиции 01.
             for button in HeadsetButton.allCases where bytes[button.byteIndex] != 0 {
-               debugLog("кнопка: \(button.title)")
+                debugLog("кнопка: \(button.title)")
                 onButton?(button)
             }
         }

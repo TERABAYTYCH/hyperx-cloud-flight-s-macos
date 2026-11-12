@@ -12,7 +12,7 @@ VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' 
 VERSION="${VERSION:-1.0.0}"
 BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 
-rm -rf build
+rm -rf "$APP" build/obj
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" build/obj
 cp -R Resources/AppIcon.icns Resources/*.lproj "$APP/Contents/Resources/"
 
