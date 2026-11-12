@@ -25,6 +25,7 @@ This is a macOS port of [CubE135/hyperx-cloud-flight-s-battery-monitor](https://
 
 - **Battery in the menu bar.** The icon is a compact battery, no wider than AlDente's. It is filled to the charge level and shows the percentage. Below 15% the numbers turn orange.
 - **Menu.** It shows the charge, the voltage and the last update time. If the headset is off, it shows the last known value.
+- **Estimated time left.** The app learns how fast your headset drains: it adds up the percent lost and the hours the headset was actually on. Time while the headset is off, the Mac sleeps, the headset charges or sits at 100% on the cable is ignored, and so is the ±1% jitter of the readings. The estimate covers roughly the last 100 hours of use, so it follows battery wear and your habits. It appears after a few hours of use.
 - **Headset buttons.** The four buttons on the left ear cup work as Mac media keys or switch the sound output. Each button can have its own single-press and double-press action.
 - **Hiding the icon when the headset is off.** On by default. When the icon is hidden, open the app again from Applications or Spotlight and the icon comes back for a minute.
 - **Reconnecting.** The app picks up a dongle plugged in or out on the fly, the headset being turned on, and the Mac waking from sleep.
@@ -120,6 +121,7 @@ tools/makeicons.sh   # build AppIcon.icns from docs/app-icon.png and redraw docs
 | `Sources/HeadsetMonitor.swift` | HID: battery requests and parsing headset events |
 | `Sources/ButtonActions.swift` | buttons, actions, double press, media keys |
 | `Sources/AudioOutput.swift` | switching the sound output via CoreAudio |
+| `Sources/BatteryEstimator.swift` | estimating the time left from the collected drain statistics |
 | `Sources/BatteryIcon.swift`, `HyperXLogo.swift` | drawing the menu bar icon |
 | `Sources/main.swift` | the menu, settings, permission, autostart |
 | `Resources/*.lproj` | localization: the keys are the English strings from the code |

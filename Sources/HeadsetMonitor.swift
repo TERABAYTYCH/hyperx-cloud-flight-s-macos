@@ -36,6 +36,10 @@ final class HeadsetMonitor {
     var onChange: ((HeadsetState) -> Void)?
     /// Нажатие кнопки на левой чашке (приходит событием 0x0B, см. `HeadsetButton`).
     var onButton: ((HeadsetButton) -> Void)?
+    /// Каждое полученное показание заряда (даже если процент не изменился).
+    var onReading: ((Int) -> Void)?
+    /// Гарнитура была не на связи: выключалась, не ответила, донгл вынули.
+    var onSessionBreak: ((String) -> Void)?
     private(set) var state: HeadsetState = .disconnected {
         didSet { if state != oldValue { onChange?(state) } }
     }
@@ -111,6 +115,7 @@ final class HeadsetMonitor {
         let timer = Timer(timeInterval: Self.responseTimeout, repeats: false) { [weak self] _ in
             guard let self, self.device != nil else { return }
             debugLog("ответа нет за \(Self.responseTimeout) с")
+            self.onSessionBreak?("нет ответа")
             self.state = .noResponse
         }
         // .common — чтобы таймеры и HID-события работали и при открытом меню.
@@ -142,6 +147,7 @@ final class HeadsetMonitor {
     private func detach(_ removed: IOHIDDevice) {
         guard removed == device else { return }
         debugLog("устройство отключено")
+        onSessionBreak?("донгл отключён")
         releaseDevice(removed)
         device = nil
         timeoutTimer?.invalidate()
@@ -166,11 +172,14 @@ final class HeadsetMonitor {
             timeoutTimer?.invalidate()
             lastReading = (percent, millivolts, Date())
             state = .battery(percent: percent, millivolts: millivolts)
+            onReading?(percent)
         } else if bytes[3] == 0x01, bytes[4] == 0x01 {
             debugLog("гарнитура включилась")
+            onSessionBreak?("гарнитура включилась")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.requestBattery() }
         } else if bytes[3] == 0x01, bytes[4] == 0x03 {
             debugLog("гарнитура выключается")
+            onSessionBreak?("гарнитура выключается")
             timeoutTimer?.invalidate()
             state = .noResponse
         } else if reportID == 0x0B, bytes[3] == 0x04, bytes.count >= 9 {

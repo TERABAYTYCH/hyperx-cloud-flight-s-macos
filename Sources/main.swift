@@ -19,6 +19,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let detailLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let remainingLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let estimator = BatteryEstimator()
+    private let durationFormatter: DateComponentsFormatter = {
+        let f = DateComponentsFormatter()
+        f.allowedUnits = [.hour, .minute]
+        f.unitsStyle = .short
+        f.maximumUnitCount = 2
+        return f
+    }()
     private let showPercentItem = NSMenuItem(title: L("Show Percentage in Icon"), action: #selector(toggleShowPercent), keyEquivalent: "")
     private let hideOfflineItem = NSMenuItem(title: L("Hide When Headset Is Off"), action: #selector(toggleHideWhenOffline), keyEquivalent: "")
     private var revealTimer: Timer?
@@ -51,6 +60,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         monitor = HeadsetMonitor(pollInterval: TimeInterval(pollMinutes * 60))
         monitor.onChange = { [weak self] _ in self?.render() }
+        monitor.onReading = { [weak self] percent in
+            self?.estimator.record(percent: percent)
+            self?.render()
+        }
+        monitor.onSessionBreak = { [weak self] reason in self?.estimator.breakSession(reason) }
+        estimator.maxGap = Self.maxReadingGap(pollMinutes: pollMinutes)
         pressRecognizer.hasDoubleAction = { [weak self] in self?.action(for: $0, double: true) != ButtonAction.none }
         pressRecognizer.onPress = { [weak self] button, double in self?.action(for: button, double: double).perform() }
         monitor.onButton = { [weak self] in self?.pressRecognizer.press($0) }
@@ -68,6 +83,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // Значок виден минуту после любого запуска, даже если гарнитура выключена: видно, что приложение работает.
         reveal()
+
+        // Пока Mac спит, мы не знаем, была ли гарнитура включена, — этот отрезок в оценку не берём.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.estimator.breakSession("сон Mac") }
 
         // После сна HID-сессия жива, но значение устарело — перезапрашиваем.
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -115,7 +135,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(header)
         statusLine.isEnabled = false
         detailLine.isEnabled = false
+        remainingLine.isEnabled = false
         menu.addItem(statusLine)
+        menu.addItem(remainingLine)
         menu.addItem(detailLine)
         menu.addItem(.separator())
 
@@ -310,6 +332,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func selectInterval(_ sender: NSMenuItem) {
         pollMinutes = sender.tag
         monitor.pollInterval = TimeInterval(sender.tag * 60)
+        estimator.maxGap = Self.maxReadingGap(pollMinutes: sender.tag)
+        // Свежее показание сразу: иначе шаг от старого, редкого опроса оценщик примет за перерыв.
+        monitor.requestBattery()
     }
 
     @objc private func toggleShowPercent() {
@@ -346,6 +371,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Отрисовка
 
+    /// Дольше этого между показаниями — значит, гарнитура была не на связи (два пропущенных опроса и запас).
+    private static func maxReadingGap(pollMinutes: Int) -> TimeInterval {
+        TimeInterval(2 * pollMinutes * 60 + 5 * 60)
+    }
+
+    /// Оценка грубая, поэтому без ложной точности: часы, если осталось много, и минуты, только когда мало.
+    private static func roundRemaining(_ seconds: TimeInterval) -> TimeInterval {
+        let step: TimeInterval = seconds >= 3 * 3600 ? 3600 : seconds >= 3600 ? 15 * 60 : 5 * 60
+        return max(step, (seconds / step).rounded() * step)
+    }
+
     private func render() {
         guard let button = statusItem.button else { return }
         let showPercent = defaults.bool(forKey: Keys.showPercent)
@@ -378,6 +414,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             )
             tooltip = String(format: L("Battery: %d%%"), percent)
             statusLine.title = String(format: L("Battery: %d%% · %.2f V"), percent, Double(millivolts) / 1000)
+            if let seconds = estimator.remaining(percent: percent) {
+                // С момента показания гарнитура продолжала разряжаться.
+                let sinceReading = max(0, monitor.lastReading.map { Date().timeIntervalSince($0.date) } ?? 0)
+                let text = durationFormatter.string(from: Self.roundRemaining(seconds - sinceReading)) ?? ""
+                remainingLine.title = String(format: L("About %@ left"), text)
+            } else {
+                remainingLine.title = L("Time left: collecting data…")
+            }
+        }
+
+        if case .battery = monitor.state {
+            remainingLine.isHidden = false
+        } else {
+            remainingLine.isHidden = true
         }
 
         if let reading = monitor.lastReading {
