@@ -22,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let remainingLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     /// Строки состояния гарнитуры (7.1, микрофон, баланс) и пункты, которые их прячут.
     private var statusLines: [StatusField: NSMenuItem] = [:]
+    /// Отделяет строки состояния от заряда; прячется вместе с ними.
+    private let statusSeparator = NSMenuItem.separator()
     private var statusToggleItems: [NSMenuItem] = []
     private let statusAllItem = NSMenuItem(title: "", action: #selector(toggleAllStatusFields), keyEquivalent: "")
     private let estimator = BatteryEstimator()
@@ -160,6 +162,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(statusLine)
         menu.addItem(remainingLine)
         menu.addItem(detailLine)
+        statusSeparator.isHidden = true
+        menu.addItem(statusSeparator)
         for field in StatusField.allCases {
             let line = NSMenuItem(title: "", action: nil, keyEquivalent: "")
             line.isEnabled = false
@@ -568,6 +572,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 line.isHidden = true
             }
         }
+        statusSeparator.isHidden = statusLines.values.allSatisfy(\.isHidden)
 
         if let reading = monitor.lastReading {
             let time = timeFormatter.string(from: reading.date)
