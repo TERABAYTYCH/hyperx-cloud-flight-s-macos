@@ -15,6 +15,17 @@ enum HeadsetButton: String, CaseIterable {
         }
     }
 
+    /// Номер кнопки в команде записи режимов (`9d … <номер> 00 00 00 <код>`). У 7.1 режима нет.
+    var headsetIndex: Int? {
+        switch self {
+        case .up: return 0
+        case .left: return 1
+        case .right: return 2
+        case .down: return 3
+        case .surround: return nil
+        }
+    }
+
     var title: String {
         switch self {
         case .up: return L("Up")
@@ -49,6 +60,24 @@ enum HeadsetButton: String, CaseIterable {
 
 enum ButtonAction: String, CaseIterable {
     case none, playPause, next, previous, muteVolume, volumeUp, volumeDown, outputGame, outputChat, outputMac
+    // Функции, которые выполняет сама гарнитура (как в NGENUITY). Записываются в гарнитуру, Mac на нажатие не реагирует.
+    case micMonitoring, gameMix, chatMix, micMute
+
+    /// Действия, которые выполняет Mac.
+    static let macActions: [ButtonAction] = allCases.filter { $0.headsetMode == nil }
+    /// Функции гарнитуры.
+    static let headsetFunctions: [ButtonAction] = allCases.filter { $0.headsetMode != nil }
+
+    /// Код режима кнопки в гарнитуре; `nil` — действие на стороне Mac (кнопка в мультимедийном режиме `00`).
+    var headsetMode: UInt8? {
+        switch self {
+        case .micMonitoring: return 0x01
+        case .gameMix: return 0x02
+        case .chatMix: return 0x03
+        case .micMute: return 0x04
+        default: return nil
+        }
+    }
 
     var title: String {
         switch self {
@@ -62,20 +91,24 @@ enum ButtonAction: String, CaseIterable {
         case .outputGame: return L("Sound Output → HyperX Game")
         case .outputChat: return L("Sound Output → HyperX Chat")
         case .outputMac: return L("Sound Output → Mac Speakers")
+        case .micMonitoring: return L("Mic Monitoring")
+        case .gameMix: return L("Game Mix")
+        case .chatMix: return L("Chat Mix")
+        case .micMute: return L("Mute Microphone")
         }
     }
 
     /// Нужна ли этому действию отправка системных медиа-клавиш (разрешение «Универсальный доступ»).
     var needsEventAccess: Bool {
         switch self {
-        case .none, .outputGame, .outputChat, .outputMac: return false
-        default: return true
+        case .playPause, .next, .previous, .muteVolume, .volumeUp, .volumeDown: return true
+        default: return false
         }
     }
 
     func perform() {
         switch self {
-        case .none: break
+        case .none, .micMonitoring, .gameMix, .chatMix, .micMute: break  // гарнитура делает это сама
         case .playPause: MediaKeys.press(.play)
         case .next: MediaKeys.press(.fast)        // F9 на клавиатуре Mac шлёт именно FAST — так понимают все плееры
         case .previous: MediaKeys.press(.rewind)  // и F7 — REWIND

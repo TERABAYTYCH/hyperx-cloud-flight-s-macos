@@ -6,7 +6,7 @@
 
 <p align="center">
   A native menu bar app for the <b>HyperX Cloud Flight S</b> wireless headset:<br>
-  battery level, headset buttons as media keys, and switching the sound output.
+  battery level, headset buttons as media keys or HyperX functions, and switching the sound output.
 </p>
 
 <p align="center"><a href="README.ru.md">Русская версия</a></p>
@@ -26,7 +26,7 @@ This is a macOS port of [CubE135/hyperx-cloud-flight-s-battery-monitor](https://
 - **Battery in the menu bar.** The icon is a compact battery. It is filled to the charge level and shows the percentage. Below 15% the numbers turn orange.
 - **Menu.** It shows the charge, the voltage and the last update time. If the headset is off, it shows the last known value.
 - **Estimated time left.** The app learns how fast your headset drains: it adds up the percent lost and the hours the headset was actually on. Time while the headset is off, the Mac sleeps, the headset charges or sits at 100% on the cable is ignored, and so is the ±1% jitter of the readings. The estimate covers roughly the last 100 hours of use, so it follows battery wear and your habits. It appears after a few hours of use.
-- **Headset buttons.** The four buttons on the left ear cup work as Mac media keys or switch the sound output. Each button can have its own single-press and double-press action.
+- **Headset buttons.** The four buttons on the left ear cup work as Mac media keys or switch the sound output. Each button can have its own single-press and double-press action. A button can also get one of the HyperX functions that the headset runs itself, as in NGENUITY. The app writes the button setup to the headset, so Windows and NGENUITY are no longer needed.
 - **Hiding the icon when the headset is off.** On by default. When the icon is hidden, open the app again from Applications or Spotlight and the icon comes back for a minute.
 - **Reconnecting.** The app picks up a dongle plugged in or out on the fly, the headset being turned on, and the Mac waking from sleep.
 - **Settings.** Polling interval: 1, 5, 15, 30 or 60 minutes. Launch at login.
@@ -76,12 +76,22 @@ You can change the actions in the menu under **Headset Buttons**. Available acti
 - mute, volume up, volume down;
 - sound output to HyperX Game, HyperX Chat or the Mac speakers.
 
+**HyperX functions (in headset).** A separate section of each button's submenu. These are the same functions as in NGENUITY, and the headset runs them itself, without the Mac:
+- mic monitoring (hear yourself in the headset);
+- game/chat balance: more game or more chat;
+- mute the microphone.
+
+The headset stores one mode per button: either one of these functions or "multimedia" (it just reports the press to the Mac). So:
+- choosing a Mac action for a button, single or double press, switches the button to multimedia automatically (a double-press action replaces the HyperX function on the single press with "Nothing");
+- choosing a HyperX function turns off the double press on that button: the headset reacts to every press, so a double press cannot be told apart. The 7.1 button has no HyperX functions.
+
+The app writes the modes to the headset whenever the setup changes and every time the headset connects. If the buttons were set up differently in NGENUITY, the app overwrites that with its own setup.
+
 A double press is a second press of the same button within 300 ms. If a button has a double-press action, its single press fires after that delay. Buttons without one react instantly.
 
 **Requirements**
 
-1. **NGENUITY on Windows, once.** Set all four buttons to multimedia actions in NGENUITY. The default actions change the headset's internal state (mic monitoring, mic mute, game/chat balance), and the headset does that on every press, whatever the Mac does with it. The setting is stored in the headset. Any Windows machine works, including a VM such as Parallels Desktop with the dongle passed through.
-2. **Accessibility permission for media keys.** Go to System Settings → Privacy & Security → Accessibility and turn on HyperX Battery. **Allow Media Control…** in the menu brings up the system prompt. The buttons start working as soon as the permission is granted, without restarting the app. Switching the sound output does not need the permission.
+1. **Accessibility permission for media keys.** Go to System Settings → Privacy & Security → Accessibility and turn on HyperX Battery. **Allow Media Control…** in the menu brings up the system prompt. The buttons start working as soon as the permission is granted, without restarting the app. Switching the sound output does not need the permission.
 
 > The ad-hoc signature changes with every rebuild, and macOS then treats the app as a different one. After an update the toggle may still look on, but the old permission no longer applies. Choose **Allow Media Control…** in the menu: the app resets its stale entry and shows the system prompt again.
 
@@ -95,10 +105,11 @@ The dongle is a single HID device: VID `0x0951`, PID `0x16EA`.
 | ← | `0b 00 bb 02 00 <mV hi> <mV lo> <%>` | battery reply, e.g. `0f a3 63` = 4003 mV, 99% |
 | ← | `0b 00 bb 01 01` / `0b 00 bb 01 03` | headset turned on / is turning off (long press of power) |
 | ← | `0b 00 bb 04 <up> <left> <right> <down> <7.1>` | button press, `01` marks the pressed one |
-| ← | `0a …` | state: mic monitoring, mute, game/chat balance (only for non-multimedia button actions) |
+| → | `06 00 02 00 9a 00 00 68 4a 8e 0a 00 00 00 bb 12 01`, then for buttons 0–3 `06 00 02 00 9d 00 00 68 4a 8e <button> 00 00 00 <mode>` | button modes. Buttons: 0 up, 1 left, 2 right, 3 down. Modes: `00` multimedia, `01` mic monitoring, `02` game mix, `03` chat mix, `04` mic mute |
+| ← | `0a …` | state: mic monitoring, mute, game/chat balance (only for buttons with a HyperX function) |
 | ← | consumer `02 01` / `02 02` | volume wheel, handled by macOS itself |
 
-A short press of the power button sends nothing. Raw captures are in [`docs/captures`](docs/captures). They were recorded with the button logger before the app existed.
+A short press of the power button sends nothing. Raw captures are in [`docs/captures`](docs/captures). They were recorded with the button logger before the app existed. The button-mode command was captured from NGENUITY on Windows with a debugger and checked from the Mac.
 
 How this differs from the Windows version:
 

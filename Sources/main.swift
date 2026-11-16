@@ -36,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var intervalItems: [NSMenuItem] = []
     private var buttonActionItems: [NSMenuItem] = []
     private let pressRecognizer = ButtonPressRecognizer()
+    /// Режимы кнопок записаны в гарнитуру в текущем сеансе связи.
+    private var buttonModesSynced = false
     private let accessItem = NSMenuItem(title: "", action: #selector(requestEventAccess), keyEquivalent: "")
 
     private let timeFormatter: DateFormatter = {
@@ -61,10 +63,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         monitor = HeadsetMonitor(pollInterval: TimeInterval(pollMinutes * 60))
         monitor.onChange = { [weak self] _ in self?.render() }
         monitor.onReading = { [weak self] percent in
-            self?.estimator.record(percent: percent)
-            self?.render()
+            guard let self else { return }
+            self.estimator.record(percent: percent)
+            // Первое показание после подключения — гарнитура на связи: записываем ей режимы кнопок.
+            if !self.buttonModesSynced { self.syncButtonModes() }
+            self.render()
         }
-        monitor.onSessionBreak = { [weak self] reason in self?.estimator.breakSession(reason) }
+        monitor.onSessionBreak = { [weak self] reason in
+            self?.estimator.breakSession(reason)
+            self?.buttonModesSynced = false
+        }
         estimator.maxGap = Self.maxReadingGap(pollMinutes: pollMinutes)
         pressRecognizer.hasDoubleAction = { [weak self] in self?.action(for: $0, double: true) != ButtonAction.none }
         pressRecognizer.onPress = { [weak self] button, double in self?.action(for: button, double: double).perform() }
@@ -87,7 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Пока Mac спит, мы не знаем, была ли гарнитура включена, — этот отрезок в оценку не берём.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.estimator.breakSession("сон Mac") }
+        ) { [weak self] _ in
+            self?.estimator.breakSession("сон Mac")
+            // Во сне события включения и выключения гарнитуры не видны — после пробуждения пишем режимы заново.
+            self?.buttonModesSynced = false
+        }
 
         // После сна HID-сессия жива, но значение устарело — перезапрашиваем.
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -241,13 +253,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let header = NSMenuItem(title: double ? L("Double Press") : L("Single Press"), action: nil, keyEquivalent: "")
                 header.isEnabled = false
                 actionsMenu.addItem(header)
-                for action in ButtonAction.allCases {
-                    let item = NSMenuItem(title: action.title, action: #selector(selectButtonAction(_:)), keyEquivalent: "")
-                    item.target = self
-                    item.indentationLevel = 1
-                    item.representedObject = ButtonBinding(button: button, double: double, action: action)
-                    actionsMenu.addItem(item)
-                    buttonActionItems.append(item)
+                for action in ButtonAction.macActions {
+                    addActionItem(action, button: button, double: double, to: actionsMenu)
+                }
+                // Функции гарнитуры — только на одно нажатие и только у четырёх кнопок (у 7.1 своей нет).
+                if !double, button.headsetIndex != nil {
+                    actionsMenu.addItem(.separator())
+                    let header = NSMenuItem(title: L("HyperX Functions (in Headset)"), action: nil, keyEquivalent: "")
+                    header.isEnabled = false
+                    actionsMenu.addItem(header)
+                    for action in ButtonAction.headsetFunctions {
+                        addActionItem(action, button: button, double: false, to: actionsMenu)
+                    }
                 }
             }
             let buttonItem = NSMenuItem(title: button.title, action: nil, keyEquivalent: "")
@@ -255,20 +272,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             buttonsMenu.addItem(buttonItem)
         }
         buttonsMenu.addItem(.separator())
-        let note = NSMenuItem(title: String(format: L("Works when the buttons are set to multimedia\nactions in NGENUITY (otherwise the headset\nperforms its own default action first).\nIf a double press is assigned, a single press\nfires after a %.1f s delay"), ButtonPressRecognizer.window), action: nil, keyEquivalent: "")
+        let note = NSMenuItem(title: String(format: L("HyperX functions run inside the headset\non every press, like in NGENUITY.\nThe settings are written to the headset\nwhenever it connects.\nIf a double press is assigned, a single press\nfires after a %.1f s delay"), ButtonPressRecognizer.window), action: nil, keyEquivalent: "")
         note.isEnabled = false
+        // Обычный title схлопывает переносы строк в одну обрезанную строку — многострочность даёт только attributedTitle.
+        note.attributedTitle = NSAttributedString(string: note.title, attributes: [
+            .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ])
         buttonsMenu.addItem(note)
         let item = NSMenuItem(title: L("Headset Buttons"), action: nil, keyEquivalent: "")
         item.submenu = buttonsMenu
         return item
     }
 
+    private func addActionItem(_ action: ButtonAction, button: HeadsetButton, double: Bool, to menu: NSMenu) {
+        let item = NSMenuItem(title: action.title, action: #selector(selectButtonAction(_:)), keyEquivalent: "")
+        item.target = self
+        item.indentationLevel = 1
+        item.representedObject = ButtonBinding(button: button, double: double, action: action)
+        menu.addItem(item)
+        buttonActionItems.append(item)
+    }
+
     @objc private func selectButtonAction(_ sender: NSMenuItem) {
         guard let binding = sender.representedObject as? ButtonBinding else { return }
         let action = binding.action
-        defaults.set(action.rawValue, forKey: defaultsKey(binding.button, double: binding.double))
+        let button = binding.button
+        let oldModes = buttonModes
+        defaults.set(action.rawValue, forKey: defaultsKey(button, double: binding.double))
+        if action.headsetMode != nil {
+            // Гарнитура сработает на каждое нажатие — двойное нажатие этой кнопки больше не распознать.
+            defaults.set(ButtonAction.none.rawValue, forKey: defaultsKey(button, double: true))
+        } else if binding.double, action != .none, self.action(for: button, double: false).headsetMode != nil {
+            // Действие Mac на двойное нажатие: кнопку переводим в мультимедийный режим, функцию гарнитуры снимаем.
+            defaults.set(ButtonAction.none.rawValue, forKey: defaultsKey(button, double: false))
+        }
+        if buttonModes != oldModes { syncButtonModes() }
         if action.needsEventAccess && !mediaAccessGranted { CGRequestPostEventAccess() }
         updateAccessItem()
+    }
+
+    /// Режимы четырёх кнопок для гарнитуры: функция гарнитуры или `00` (мультимедиа) для действий Mac.
+    private var buttonModes: [UInt8] {
+        HeadsetButton.allCases.compactMap { button in
+            button.headsetIndex.map { _ in action(for: button, double: false).headsetMode ?? 0x00 }
+        }
+    }
+
+    /// Записать режимы кнопок, если гарнитура на связи; иначе — при следующем подключении.
+    private func syncButtonModes() {
+        guard case .battery = monitor.state else {
+            buttonModesSynced = false
+            return
+        }
+        buttonModesSynced = true
+        monitor.writeButtonModes(buttonModes) { [weak self] ok in
+            // Не ушло — повторим при следующем показании заряда.
+            if !ok { self?.buttonModesSynced = false }
+        }
     }
 
     /// Последнее известное состояние разрешения. Обновляется проверкой в свежем процессе, потому что

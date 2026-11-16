@@ -17,9 +17,12 @@ enum HeadsetState: Equatable {
 ///    data[3] == 0x02, data[5..6] — напряжение в мВ (big-endian), data[7] — заряд в процентах;
 ///  * data[3] == 0x01 && data[4] == 0x01 — гарнитура только что включилась, 0x03 — выключается (долгое нажатие питания);
 ///  * 0x0B с data[3] == 0x04 — нажатие кнопки: data[4] верх, [5] лево, [6] право, [7] низ, [8] 7.1.
-///    Если в NGENUITY кнопкам назначены «мультимедийные» действия, гарнитура сама ничего не делает —
-///    только шлёт это событие; иначе вслед приходит отчёт состояния 0x0A (мониторинг, mute, баланс).
+///    В мультимедийном режиме (код 00, см. ниже) гарнитура сама ничего не делает — только шлёт это событие;
+///    с функцией HyperX вслед приходит отчёт состояния 0x0A (мониторинг, mute, баланс).
 ///  * колёсико громкости — стандартный consumer-отчёт 0x02 (01 громче / 02 тише), его обрабатывает macOS.
+///  * режимы кнопок (как пишет NGENUITY, снято отладчиком и проверено с Mac) — пять output-отчётов 0x06:
+///    `… 9a … 0a 00 00 00 bb 12 01`, затем для кнопок 0–3 `06 00 02 00 9d 00 00 68 4a 8e <номер> 00 00 00 <код>`.
+///    Коды: 00 мультимедиа (гарнитура только шлёт событие), 01 мониторинг микрофона, 02 game mix, 03 chat mix, 04 mute.
 final class HeadsetMonitor {
     static let vendorID = 0x0951   // 2385
     static let productID = 0x16EA  // 5866
@@ -29,6 +32,11 @@ final class HeadsetMonitor {
     private static let batteryRequest: [UInt8] = [
         0x06, 0x00, 0x02, 0x00, 0x9a, 0x00, 0x00, 0x68,
         0x4a, 0x8e, 0x0a, 0x00, 0x00, 0x00, 0xbb, 0x02,
+    ]
+    private static let buttonModesPrefix: [UInt8] = [0x06, 0x00, 0x02, 0x00, 0x9d, 0x00, 0x00, 0x68, 0x4a, 0x8e]
+    private static let buttonModesBegin: [UInt8] = [
+        0x06, 0x00, 0x02, 0x00, 0x9a, 0x00, 0x00, 0x68,
+        0x4a, 0x8e, 0x0a, 0x00, 0x00, 0x00, 0xbb, 0x12, 0x01,
     ]
     private static let responseTimeout: TimeInterval = 5
     private static let inputBufferSize = 64
@@ -100,10 +108,7 @@ final class HeadsetMonitor {
     func requestBattery() {
         guard let device else { state = .disconnected; return }
 
-        var report = [UInt8](repeating: 0, count: Self.outputReportLength)
-        report.replaceSubrange(0..<Self.batteryRequest.count, with: Self.batteryRequest)
-        let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, Self.requestReportID, report, report.count)
-        debugLog("SetReport -> \(hex(result))")
+        let result = send(Self.batteryRequest, to: device)
 
         if result != kIOReturnSuccess {
             state = .noResponse
@@ -121,6 +126,38 @@ final class HeadsetMonitor {
         // .common — чтобы таймеры и HID-события работали и при открытом меню.
         RunLoop.main.add(timer, forMode: .common)
         timeoutTimer = timer
+    }
+
+    /// Записать режимы четырёх кнопок (верх, лево, право, низ) — та же последовательность, что у NGENUITY.
+    /// Доходит, только если гарнитура на связи. Отчёты уходят с паузой около 0,1 с, как у NGENUITY.
+    /// `completion(true)` — все отчёты приняты донглом.
+    func writeButtonModes(_ modes: [UInt8], completion: @escaping (Bool) -> Void = { _ in }) {
+        guard device != nil, modes.count == 4 else { completion(false); return }
+        debugLog("режимы кнопок: " + modes.map { String(format: "%02x", $0) }.joined(separator: " "))
+        var reports = [Self.buttonModesBegin]
+        for (index, mode) in modes.enumerated() {
+            reports.append(Self.buttonModesPrefix + [UInt8(index), 0x00, 0x00, 0x00, mode])
+        }
+        var failed = false
+        for (step, report) in reports.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1 * Double(step)) { [weak self] in
+                if let self, let device = self.device, !failed {
+                    failed = self.send(report, to: device) != kIOReturnSuccess
+                } else {
+                    failed = true
+                }
+                if step == reports.count - 1 { completion(!failed) }
+            }
+        }
+    }
+
+    /// Output-отчёт 0x06: начало пакета, дополненное нулями до 62 байт.
+    private func send(_ head: [UInt8], to device: IOHIDDevice) -> IOReturn {
+        var report = [UInt8](repeating: 0, count: Self.outputReportLength)
+        report.replaceSubrange(0..<head.count, with: head)
+        let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, Self.requestReportID, report, report.count)
+        debugLog("SetReport \(head.map { String(format: "%02x", $0) }.joined(separator: " ")) -> \(hex(result))")
+        return result
     }
 
     // MARK: - Устройство

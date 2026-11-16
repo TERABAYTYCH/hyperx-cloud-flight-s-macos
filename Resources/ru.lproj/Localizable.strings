@@ -23,7 +23,12 @@
 "Allow Media Control (Accessibility)…" = "Разрешить управление медиа (Универсальный доступ)…";
 "Double Press" = "Двойное нажатие";
 "Single Press" = "Одно нажатие";
-"Works when the buttons are set to multimedia\nactions in NGENUITY (otherwise the headset\nperforms its own default action first).\nIf a double press is assigned, a single press\nfires after a %.1f s delay" = "Работает, если в NGENUITY кнопкам назначены\n«мультимедийные» действия (иначе гарнитура\nсначала выполнит своё стандартное действие).\nЕсли назначено двойное нажатие, одиночное\nсрабатывает с задержкой %.1f с";
+"HyperX functions run inside the headset\non every press, like in NGENUITY.\nThe settings are written to the headset\nwhenever it connects.\nIf a double press is assigned, a single press\nfires after a %.1f s delay" = "Функции HyperX гарнитура выполняет сама\nна каждое нажатие, как в NGENUITY.\nНастройки записываются в гарнитуру\nпри каждом подключении.\nЕсли назначено двойное нажатие, одиночное\nсрабатывает с задержкой %.1f с";
+"HyperX Functions (in Headset)" = "Функции HyperX (в гарнитуре)";
+"Mic Monitoring" = "Мониторинг микрофона";
+"Game Mix" = "Баланс: больше игры";
+"Chat Mix" = "Баланс: больше чата";
+"Mute Microphone" = "Выключить микрофон";
 "Headset Buttons" = "Кнопки гарнитуры";
 "Couldn’t Change Launch at Login" = "Не удалось изменить автозапуск";
 "Dongle not connected" = "Донгл не подключён";
