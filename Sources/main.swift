@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Строки состояния гарнитуры (7.1, микрофон, баланс) и пункты, которые их прячут.
     private var statusLines: [StatusField: NSMenuItem] = [:]
     private var statusToggleItems: [NSMenuItem] = []
+    private let statusAllItem = NSMenuItem(title: "", action: #selector(toggleAllStatusFields), keyEquivalent: "")
     private let estimator = BatteryEstimator()
     private let durationFormatter: DateComponentsFormatter = {
         let f = DateComponentsFormatter()
@@ -194,6 +195,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(showPercentItem)
         let statusMenu = NSMenu()
         statusMenu.autoenablesItems = false
+        statusAllItem.target = self
+        statusMenu.addItem(statusAllItem)
+        statusMenu.addItem(.separator())
         for field in StatusField.allCases {
             let item = NSMenuItem(title: field.title, action: #selector(toggleStatusField(_:)), keyEquivalent: "")
             item.target = self
@@ -225,6 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let raw = item.representedObject as? String, let field = StatusField(rawValue: raw) else { continue }
             item.state = isShown(field) ? .on : .off
         }
+        updateStatusAllItem()
         // Состояние могли поменять кнопками или в другой программе — уточняем, пока меню открыто.
         if case .battery = monitor.state { monitor.requestStatus() }
         hideOfflineItem.state = defaults.bool(forKey: Keys.hideWhenOffline) ? .on : .off
@@ -439,6 +444,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let raw = sender.representedObject as? String, let field = StatusField(rawValue: raw) else { return }
         defaults.set(!isShown(field), forKey: field.defaultsKey)
         sender.state = isShown(field) ? .on : .off
+        updateStatusAllItem()
+        render()
+    }
+
+    private var allStatusFieldsShown: Bool { StatusField.allCases.allSatisfy(isShown) }
+
+    private func updateStatusAllItem() {
+        statusAllItem.title = allStatusFieldsShown ? L("Hide All") : L("Show All")
+    }
+
+    /// «Скрыть все» / «Показать все»: если видно всё — прячем всё, иначе показываем всё.
+    @objc private func toggleAllStatusFields() {
+        let show = !allStatusFieldsShown
+        for field in StatusField.allCases { defaults.set(show, forKey: field.defaultsKey) }
+        for item in statusToggleItems { item.state = show ? .on : .off }
+        updateStatusAllItem()
         render()
     }
 
