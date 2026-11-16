@@ -9,6 +9,29 @@ enum HeadsetState: Equatable {
     case battery(percent: Int, millivolts: Int)
 }
 
+/// Состояние, которое гарнитура хранит сама (отчёт 0x0A).
+struct HeadsetStatus: Equatable {
+    var surround: Bool
+    var micMuted: Bool
+    var micMonitoring: Bool
+    /// Ослабление звука игры и чата в дБ (0 — без ослабления), `nil` — звук выключен. Ослаблен только один из них.
+    var gameAttenuation: Int?
+    var chatAttenuation: Int?
+
+    /// `0a 00 <dsp> 03 <флаги> 00 <чат> <чат2> 00 00 <игра> <игра2> …`: dsp & 02 — 7.1;
+    /// флаги & 02 — микрофон выключен, & 10 — мониторинг; ослабление — int8 в дБ, 0x80 — звук выключен.
+    init?(report: ArraySlice<UInt8>) {
+        let b = Array(report)
+        guard b.count >= 12, b[0] == 0x0A else { return nil }
+        func attenuation(_ byte: UInt8) -> Int? { byte == 0x80 ? nil : Int(Int8(bitPattern: byte)) }
+        surround = b[2] & 0x02 != 0
+        micMuted = b[4] & 0x02 != 0
+        micMonitoring = b[4] & 0x10 != 0
+        chatAttenuation = attenuation(b[6])
+        gameAttenuation = attenuation(b[10])
+    }
+}
+
 /// Работа с донглом HyperX Cloud Flight S через IOHIDManager.
 ///
 /// Протокол (из оригинального Electron-приложения, проверено на macOS):
@@ -23,6 +46,8 @@ enum HeadsetState: Equatable {
 ///  * режимы кнопок (как пишет NGENUITY, снято отладчиком и проверено с Mac) — пять output-отчётов 0x06:
 ///    `… 9a … 0a 00 00 00 bb 12 01`, затем для кнопок 0–3 `06 00 02 00 9d 00 00 68 4a 8e <номер> 00 00 00 <код>`.
 ///    Коды: 00 мультимедиа (гарнитура только шлёт событие), 01 мониторинг микрофона, 02 game mix, 03 chat mix, 04 mute.
+///  * состояние гарнитуры (`HeadsetStatus`) приходит отчётом 0x0A при каждом изменении; запрос
+///    `06 00 00 00 ff 00 00 68 4a 8e` (как в HyperHeadset) возвращает input 0x07, в котором с байта 10 — тот же отчёт 0x0A.
 final class HeadsetMonitor {
     static let vendorID = 0x0951   // 2385
     static let productID = 0x16EA  // 5866
@@ -38,6 +63,7 @@ final class HeadsetMonitor {
         0x06, 0x00, 0x02, 0x00, 0x9a, 0x00, 0x00, 0x68,
         0x4a, 0x8e, 0x0a, 0x00, 0x00, 0x00, 0xbb, 0x12, 0x01,
     ]
+    private static let statusRequest: [UInt8] = [0x06, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x68, 0x4a, 0x8e]
     private static let responseTimeout: TimeInterval = 5
     private static let inputBufferSize = 64
 
@@ -46,6 +72,11 @@ final class HeadsetMonitor {
     var onButton: ((HeadsetButton) -> Void)?
     /// Каждое полученное показание заряда (даже если процент не изменился).
     var onReading: ((Int) -> Void)?
+    /// Изменилось состояние гарнитуры (7.1, микрофон, баланс); `nil` — неизвестно.
+    var onStatus: ((HeadsetStatus?) -> Void)?
+    private(set) var status: HeadsetStatus? {
+        didSet { if status != oldValue { onStatus?(status) } }
+    }
     /// Гарнитура была не на связи: выключалась, не ответила, донгл вынули.
     var onSessionBreak: ((String) -> Void)?
     private(set) var state: HeadsetState = .disconnected {
@@ -120,12 +151,18 @@ final class HeadsetMonitor {
         let timer = Timer(timeInterval: Self.responseTimeout, repeats: false) { [weak self] _ in
             guard let self, self.device != nil else { return }
             debugLog("ответа нет за \(Self.responseTimeout) с")
-            self.onSessionBreak?("нет ответа")
+            self.breakSession("нет ответа")
             self.state = .noResponse
         }
         // .common — чтобы таймеры и HID-события работали и при открытом меню.
         RunLoop.main.add(timer, forMode: .common)
         timeoutTimer = timer
+    }
+
+    /// Запросить состояние гарнитуры. Ответ придёт асинхронно и обновит `status`.
+    func requestStatus() {
+        guard let device else { return }
+        _ = send(Self.statusRequest, to: device)
     }
 
     /// Записать режимы четырёх кнопок (верх, лево, право, низ) — та же последовательность, что у NGENUITY.
@@ -184,7 +221,7 @@ final class HeadsetMonitor {
     private func detach(_ removed: IOHIDDevice) {
         guard removed == device else { return }
         debugLog("устройство отключено")
-        onSessionBreak?("донгл отключён")
+        breakSession("донгл отключён")
         releaseDevice(removed)
         device = nil
         timeoutTimer?.invalidate()
@@ -202,6 +239,15 @@ final class HeadsetMonitor {
         debugLog("in rid=0x\(String(reportID, radix: 16)) len=\(bytes.count): " + bytes.map { String(format: "%02x", $0) }.joined(separator: " "))
         guard bytes.count >= 8 else { return }
 
+        if reportID == 0x0A, let status = HeadsetStatus(report: bytes[...]) {
+            self.status = status
+            return
+        }
+        if reportID == 0x07, bytes.count >= 22, bytes[4] == 0xff, let status = HeadsetStatus(report: bytes[10...]) {
+            self.status = status
+            return
+        }
+
         if bytes[3] == 0x02, bytes[5] != 0 || bytes[6] != 0 {
             let percent = Int(bytes[7])
             guard (0...100).contains(percent) else { return }
@@ -212,11 +258,11 @@ final class HeadsetMonitor {
             onReading?(percent)
         } else if bytes[3] == 0x01, bytes[4] == 0x01 {
             debugLog("гарнитура включилась")
-            onSessionBreak?("гарнитура включилась")
+            breakSession("гарнитура включилась")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.requestBattery() }
         } else if bytes[3] == 0x01, bytes[4] == 0x03 {
             debugLog("гарнитура выключается")
-            onSessionBreak?("гарнитура выключается")
+            breakSession("гарнитура выключается")
             timeoutTimer?.invalidate()
             state = .noResponse
         } else if reportID == 0x0B, bytes[3] == 0x04, bytes.count >= 9 {
@@ -236,6 +282,12 @@ final class HeadsetMonitor {
         timer.tolerance = min(30, pollInterval * 0.1)
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
+    }
+
+    /// Гарнитура была не на связи — её состояние больше не известно.
+    private func breakSession(_ reason: String) {
+        status = nil
+        onSessionBreak?(reason)
     }
 
     // MARK: - Утилиты

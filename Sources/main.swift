@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let detailLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let remainingLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    /// Строки состояния гарнитуры (7.1, микрофон, баланс) и пункты, которые их прячут.
+    private var statusLines: [StatusField: NSMenuItem] = [:]
+    private var statusToggleItems: [NSMenuItem] = []
     private let estimator = BatteryEstimator()
     private let durationFormatter: DateComponentsFormatter = {
         let f = DateComponentsFormatter()
@@ -62,11 +65,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         monitor = HeadsetMonitor(pollInterval: TimeInterval(pollMinutes * 60))
         monitor.onChange = { [weak self] _ in self?.render() }
+        monitor.onStatus = { [weak self] _ in self?.render() }
         monitor.onReading = { [weak self] percent in
             guard let self else { return }
             self.estimator.record(percent: percent)
-            // Первое показание после подключения — гарнитура на связи: записываем ей режимы кнопок.
-            if !self.buttonModesSynced { self.syncButtonModes() }
+            // Первое показание после подключения — гарнитура на связи: записываем ей режимы кнопок
+            // и узнаём её состояние (после записи, чтобы отчёты не перемешались).
+            if !self.buttonModesSynced {
+                self.syncButtonModes()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { self.monitor.requestStatus() }
+            }
             self.render()
         }
         monitor.onSessionBreak = { [weak self] reason in
@@ -151,6 +159,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(statusLine)
         menu.addItem(remainingLine)
         menu.addItem(detailLine)
+        for field in StatusField.allCases {
+            let line = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            line.isEnabled = false
+            line.isHidden = true
+            statusLines[field] = line
+            menu.addItem(line)
+        }
         menu.addItem(.separator())
 
         let refresh = NSMenuItem(title: L("Refresh Now"), action: #selector(refreshNow), keyEquivalent: "r")
@@ -177,6 +192,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         showPercentItem.target = self
         menu.addItem(showPercentItem)
+        let statusMenu = NSMenu()
+        statusMenu.autoenablesItems = false
+        for field in StatusField.allCases {
+            let item = NSMenuItem(title: field.title, action: #selector(toggleStatusField(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = field.rawValue
+            statusMenu.addItem(item)
+            statusToggleItems.append(item)
+        }
+        let statusMenuItem = NSMenuItem(title: L("Headset Status in Menu"), action: nil, keyEquivalent: "")
+        statusMenuItem.submenu = statusMenu
+        menu.addItem(statusMenuItem)
         hideOfflineItem.target = self
         hideOfflineItem.toolTip = L("To bring a hidden icon back for a minute, open the app again")
         menu.addItem(hideOfflineItem)
@@ -194,6 +221,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menuIsOpen = true
         for item in intervalItems { item.state = item.tag == pollMinutes ? .on : .off }
         showPercentItem.state = defaults.bool(forKey: Keys.showPercent) ? .on : .off
+        for item in statusToggleItems {
+            guard let raw = item.representedObject as? String, let field = StatusField(rawValue: raw) else { continue }
+            item.state = isShown(field) ? .on : .off
+        }
+        // Состояние могли поменять кнопками или в другой программе — уточняем, пока меню открыто.
+        if case .battery = monitor.state { monitor.requestStatus() }
         hideOfflineItem.state = defaults.bool(forKey: Keys.hideWhenOffline) ? .on : .off
         switch SMAppService.mainApp.status {
         case .enabled: loginItem.state = .on
@@ -398,6 +431,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         monitor.requestBattery()
     }
 
+    private func isShown(_ field: StatusField) -> Bool {
+        defaults.object(forKey: field.defaultsKey) as? Bool ?? true
+    }
+
+    @objc private func toggleStatusField(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let field = StatusField(rawValue: raw) else { return }
+        defaults.set(!isShown(field), forKey: field.defaultsKey)
+        sender.state = isShown(field) ? .on : .off
+        render()
+    }
+
     @objc private func toggleShowPercent() {
         defaults.set(!defaults.bool(forKey: Keys.showPercent), forKey: Keys.showPercent)
         render()
@@ -491,6 +535,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             remainingLine.isHidden = true
         }
 
+        // Состояние гарнитуры — только пока она на связи и ответила на запрос.
+        var headsetStatus: HeadsetStatus?
+        if case .battery = monitor.state { headsetStatus = monitor.status }
+        for field in StatusField.allCases {
+            guard let line = statusLines[field] else { continue }
+            if let headsetStatus, isShown(field) {
+                line.title = field.text(for: headsetStatus)
+                line.isHidden = false
+            } else {
+                line.isHidden = true
+            }
+        }
+
         if let reading = monitor.lastReading {
             let time = timeFormatter.string(from: reading.date)
             if case .battery = monitor.state {
@@ -512,6 +569,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         button.image = icon
         button.title = ""
         button.toolTip = tooltip
+    }
+}
+
+/// Строки состояния гарнитуры в меню; каждую можно спрятать.
+enum StatusField: String, CaseIterable {
+    case microphone, monitoring, balance, surround
+
+    var defaultsKey: String { "status." + rawValue }
+
+    /// Название в подменю «Состояние гарнитуры в меню».
+    var title: String {
+        switch self {
+        case .microphone: return L("Microphone")
+        case .monitoring: return L("Mic Monitoring")
+        case .balance: return L("Game/Chat Balance")
+        case .surround: return L("7.1 Surround")
+        }
+    }
+
+    func text(for status: HeadsetStatus) -> String {
+        switch self {
+        case .microphone:
+            return status.micMuted ? L("Microphone: muted") : L("Microphone: on")
+        case .monitoring:
+            return status.micMonitoring ? L("Mic monitoring: on") : L("Mic monitoring: off")
+        case .surround:
+            return status.surround ? L("7.1 Surround: on") : L("7.1 Surround: off")
+        case .balance:
+            // Ослаблен только один канал: ослаблен чат — значит, больше игры, и наоборот.
+            if status.chatAttenuation == nil { return L("Balance: game only (chat off)") }
+            if status.gameAttenuation == nil { return L("Balance: chat only (game off)") }
+            if let chat = status.chatAttenuation, chat < 0 {
+                return String(format: L("Balance: more game (chat −%d dB)"), -chat)
+            }
+            if let game = status.gameAttenuation, game < 0 {
+                return String(format: L("Balance: more chat (game −%d dB)"), -game)
+            }
+            return L("Balance: even")
+        }
     }
 }
 

@@ -26,6 +26,7 @@ This is a macOS port of [CubE135/hyperx-cloud-flight-s-battery-monitor](https://
 - **Battery in the menu bar.** The icon is a compact battery. It is filled to the charge level and shows the percentage. Below 15% the numbers turn orange.
 - **Menu.** It shows the charge, the voltage and the last update time. If the headset is off, it shows the last known value.
 - **Estimated time left.** The app learns how fast your headset drains: it adds up the percent lost and the hours the headset was actually on. Time while the headset is off, the Mac sleeps, the headset charges or sits at 100% on the cable is ignored, and so is the ±1% jitter of the readings. The estimate covers roughly the last 100 hours of use, so it follows battery wear and your habits. It appears after a few hours of use.
+- **Headset status.** The menu shows what the headset itself keeps: microphone on or muted, mic monitoring, game/chat balance (which side is attenuated and by how many dB) and 7.1 surround. The app asks the headset for its status when it connects and whenever the menu opens, and updates it as the buttons are pressed. Each line can be hidden under **Headset Status in Menu**.
 - **Headset buttons.** The four buttons on the left ear cup work as Mac media keys or switch the sound output. Each button can have its own single-press and double-press action. A button can also get one of the HyperX functions that the headset runs itself, as in NGENUITY. The app writes the button setup to the headset, so Windows and NGENUITY are no longer needed.
 - **Hiding the icon when the headset is off.** On by default. When the icon is hidden, open the app again from Applications or Spotlight and the icon comes back for a minute.
 - **Reconnecting.** The app picks up a dongle plugged in or out on the fly, the headset being turned on, and the Mac waking from sleep.
@@ -106,7 +107,9 @@ The dongle is a single HID device: VID `0x0951`, PID `0x16EA`.
 | ← | `0b 00 bb 01 01` / `0b 00 bb 01 03` | headset turned on / is turning off (long press of power) |
 | ← | `0b 00 bb 04 <up> <left> <right> <down> <7.1>` | button press, `01` marks the pressed one |
 | → | `06 00 02 00 9a 00 00 68 4a 8e 0a 00 00 00 bb 12 01`, then for buttons 0–3 `06 00 02 00 9d 00 00 68 4a 8e <button> 00 00 00 <mode>` | button modes. Buttons: 0 up, 1 left, 2 right, 3 down. Modes: `00` multimedia, `01` mic monitoring, `02` game mix, `03` chat mix, `04` mic mute |
-| ← | `0a …` | state: mic monitoring, mute, game/chat balance (only for buttons with a HyperX function) |
+| ← | `0a 00 <dsp> 03 <flags> 00 <chat> xx 00 00 <game> xx` | status, sent on every change: `dsp & 02` 7.1 on; `flags & 02` mic muted, `flags & 10` mic monitoring; `chat`/`game` attenuation in dB as int8 (`00, fe, fc, f9, f5, f1, eb, e1` = 0 … −31 dB), `80` = off |
+| → | output `0x06`: `06 00 00 00 ff 00 00 68 4a 8e` padded with zeros | status request (as in [HyperHeadset](https://github.com/LennardKittner/HyperHeadset)) |
+| ← | input `0x07`: `07 00 04 00 ff 00 00 68 4a 8e` + the same `0a …` status from byte 10 | status reply |
 | ← | consumer `02 01` / `02 02` | volume wheel, handled by macOS itself |
 
 A short press of the power button sends nothing. Raw captures are in [`docs/captures`](docs/captures). They were recorded with the button logger before the app existed. The button-mode command was captured from NGENUITY on Windows with a debugger and checked from the Mac.
