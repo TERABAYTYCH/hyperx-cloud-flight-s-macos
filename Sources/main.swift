@@ -314,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             buttonsMenu.addItem(buttonItem)
         }
         buttonsMenu.addItem(.separator())
-        let note = NSMenuItem(title: String(format: L("HyperX functions run inside the headset\non every press, like in NGENUITY.\nThe settings are written to the headset\nwhenever it connects.\nIf a double press is assigned, a single press\nfires after a %.1f s delay"), ButtonPressRecognizer.window), action: nil, keyEquivalent: "")
+        let note = NSMenuItem(title: String(format: L("HyperX functions run inside the headset\non every press, like in NGENUITY,\nso double press does not work with them.\nThe settings are written to the headset\nwhenever it connects.\nIf a double press is assigned, a single press\nfires after a %.1f s delay"), ButtonPressRecognizer.window), action: nil, keyEquivalent: "")
         note.isEnabled = false
         // Обычный title схлопывает переносы строк в одну обрезанную строку — многострочность даёт только attributedTitle.
         note.attributedTitle = NSAttributedString(string: note.title, attributes: [
