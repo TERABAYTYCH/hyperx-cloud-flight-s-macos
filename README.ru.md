@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/menu-ru.png" width="299" alt="Меню">
+  <img src="docs/menu-ru.png" width="345" alt="Меню">
 </p>
 
 Это порт [CubE135/hyperx-cloud-flight-s-battery-monitor](https://github.com/CubE135/hyperx-cloud-flight-s-battery-monitor) (Electron, только Windows) на macOS. Приложение переписано с нуля на Swift с IOKit и CoreAudio. Зависимостей нет, размер около 300 КБ.
@@ -63,6 +63,10 @@ open "/Applications/HyperX Battery.app"
 Собранное самостоятельно приложение не попадает в карантин и открывается сразу.
 
 ## Кнопки гарнитуры
+
+<p align="center">
+  <img src="docs/buttons-ru.png" width="731" alt="Подменю «Кнопки гарнитуры»">
+</p>
 
 | Кнопка | Одно нажатие | Двойное нажатие |
 |---|---|---|

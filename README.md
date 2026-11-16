@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/menu-en.png" width="293" alt="Menu">
+  <img src="docs/menu-en.png" width="275" alt="Menu">
 </p>
 
 This is a macOS port of [CubE135/hyperx-cloud-flight-s-battery-monitor](https://github.com/CubE135/hyperx-cloud-flight-s-battery-monitor), an Electron app for Windows. It is rewritten from scratch in Swift with IOKit and CoreAudio. It has no dependencies and is about 300 KB.
@@ -63,6 +63,10 @@ open "/Applications/HyperX Battery.app"
 A self-built app is not quarantined and opens right away.
 
 ## Headset buttons
+
+<p align="center">
+  <img src="docs/buttons-en.png" width="566" alt="Headset Buttons submenu">
+</p>
 
 | Button | Single press | Double press |
 |---|---|---|
