@@ -23,15 +23,15 @@ This is a macOS port of [CubE135/hyperx-cloud-flight-s-battery-monitor](https://
 
 ## Features
 
-- **Battery in the menu bar.** The icon is a compact battery. It is filled to the charge level and shows the percentage. Below 15% the numbers turn orange.
-- **Menu.** It shows the charge, the voltage and the last update time. If the headset is off, it shows the last known value.
-- **Estimated time left.** The app learns how fast your headset drains: it adds up the percent lost and the hours the headset was actually on. Time while the headset is off, the Mac sleeps, the headset charges or sits at 100% on the cable is ignored, and so is the ±1% jitter of the readings. The estimate covers roughly the last 100 hours of use, so it follows battery wear and your habits. It appears after a few hours of use.
-- **Headset status.** The menu shows what the headset itself keeps: microphone on or muted, mic monitoring, game/chat balance (a slider such as `Game −2 ··|·●··· Chat` with 17 positions: the quieter channel shows how many steps it is down, from −1 to −7, and a channel that is off shows `OFF` instead of its name; the dot moves toward the louder side, `|` marks the middle) and 7.1 surround. The app asks the headset for its status when it connects and whenever the menu opens, and updates it as the buttons are pressed. Each line can be hidden under **Headset Status in Menu**.
-- **Headset buttons.** The four buttons on the left ear cup work as Mac media keys or switch the sound output. Each button can have its own single-press and double-press action. A button can also get one of the HyperX functions that the headset runs itself, as in NGENUITY. The app writes the button setup to the headset, so Windows and NGENUITY are no longer needed.
-- **Hiding the icon when the headset is off.** On by default. When the icon is hidden, open the app again from Applications or Spotlight and the icon comes back for a minute.
-- **Reconnecting.** The app picks up a dongle plugged in or out on the fly, the headset being turned on, and the Mac waking from sleep.
-- **Settings.** Polling interval: 1, 5, 15, 30 or 60 minutes. Launch at login.
-- **Languages.** The interface is in English and Russian and follows the system language.
+- **Battery in the menu bar.** Shows the charge as a battery with a percentage.
+- **Menu.** Shows the charge, voltage and last update time.
+- **Estimated time left.** Shows how long the charge will last.
+- **Headset status.** Shows the microphone, mic monitoring, game/chat balance and 7.1.
+- **Headset buttons.** Assigns media keys, sound output or HyperX functions to the buttons.
+- **Hiding the icon.** Hides the icon when the headset is off.
+- **Reconnecting.** Picks up the dongle, the headset turning on and the Mac waking.
+- **Settings.** Set the polling interval and launch at login.
+- **Languages.** English and Russian.
 
 ## Install
 
