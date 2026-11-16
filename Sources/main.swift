@@ -614,6 +614,20 @@ enum StatusField: String, CaseIterable {
         }
     }
 
+    /// Шаги ослабления канала в гарнитуре (дБ); девятый шаг — канал выключен.
+    private static let attenuationSteps = [0, -2, -4, -7, -11, -15, -21, -31]
+
+    /// Номер шага 0…8 по ослаблению (`nil` — выключен).
+    private static func step(_ attenuation: Int?) -> Int {
+        guard let attenuation else { return attenuationSteps.count }
+        return attenuationSteps.indices.min { abs(attenuationSteps[$0] - attenuation) < abs(attenuationSteps[$1] - attenuation) } ?? 0
+    }
+
+    /// Положение баланса: −8 (только чат) … 0 (поровну) … 8 (только игра).
+    static func gamePosition(_ status: HeadsetStatus) -> Int {
+        step(status.chatAttenuation) - step(status.gameAttenuation)
+    }
+
     func text(for status: HeadsetStatus) -> String {
         switch self {
         case .microphone:
@@ -623,16 +637,22 @@ enum StatusField: String, CaseIterable {
         case .surround:
             return status.surround ? L("7.1 Surround: on") : L("7.1 Surround: off")
         case .balance:
-            // Ослаблен только один канал: ослаблен чат — значит, больше игры, и наоборот.
-            if status.chatAttenuation == nil { return L("Balance: game only (chat off)") }
-            if status.gameAttenuation == nil { return L("Balance: chat only (game off)") }
-            if let chat = status.chatAttenuation, chat < 0 {
-                return String(format: L("Balance: more game (chat −%d dB)"), -chat)
+            // Ползунок из 17 положений: точка смещается к тому каналу, который громче.
+            let toChat = Self.attenuationSteps.count - Self.gamePosition(status)  // 0 — только игра, 16 — только чат
+            // Середина отмечена «|», чтобы было видно, в какую сторону смещён баланс.
+            var marks = Array(repeating: "·", count: 2 * Self.attenuationSteps.count + 1)
+            marks[Self.attenuationSteps.count] = "|"
+            marks[toChat] = "●"
+            let slider = marks.joined()
+            // Приглушённый канал подписан числом шагов (−1 … −7), выключенный — «OFF» вместо названия.
+            func label(_ name: String, _ attenuation: Int?, numberFirst: Bool) -> String {
+                let step = Self.step(attenuation)
+                if step == 0 { return name }
+                if step == Self.attenuationSteps.count { return L("OFF") }
+                return numberFirst ? "−\(step) \(name)" : "\(name) −\(step)"
             }
-            if let game = status.gameAttenuation, game < 0 {
-                return String(format: L("Balance: more chat (game −%d dB)"), -game)
-            }
-            return L("Balance: even")
+            return label(L("Game"), status.gameAttenuation, numberFirst: false) + " " + slider + " "
+                + label(L("Chat"), status.chatAttenuation, numberFirst: true)
         }
     }
 }
