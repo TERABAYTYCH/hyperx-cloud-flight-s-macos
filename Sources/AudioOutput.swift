@@ -3,6 +3,70 @@ import Foundation
 
 /// Переключение устройства вывода звука macOS (как выбор в меню «Звук»).
 enum AudioOutput {
+    /// Выходы, между которыми переключает действие «Вывод звука по кругу» — в этом порядке.
+    enum Target: String, CaseIterable {
+        case game, chat, mac
+
+        var title: String {
+            switch self {
+            case .game: return "HyperX Game"
+            case .chat: return "HyperX Chat"
+            case .mac: return L("Mac Speakers")
+            }
+        }
+
+        @discardableResult
+        func select() -> Bool {
+            switch self {
+            case .game: return AudioOutput.select(nameContains: "Cloud Flight S Game")
+            case .chat: return AudioOutput.select(nameContains: "Cloud Flight S Chat")
+            case .mac: return AudioOutput.selectBuiltIn()
+            }
+        }
+    }
+
+    private static let cycleKey = "outputCycle"
+
+    /// Какие выходы входят в круг (по умолчанию все три). Меньше двух не бывает — иначе это не переключение.
+    static var cycleTargets: [Target] {
+        get {
+            let saved = (UserDefaults.standard.stringArray(forKey: cycleKey) ?? []).compactMap(Target.init(rawValue:))
+            let targets = Target.allCases.filter(saved.contains)
+            return targets.count >= 2 ? targets : Target.allCases
+        }
+        set { UserDefaults.standard.set(newValue.map(\.rawValue), forKey: cycleKey) }
+    }
+
+    /// Переключить на следующий выход круга: Game → Chat → Mac → Game, пропуская выключенные.
+    /// Если сейчас звук идёт на выход не из круга — на первый выход круга.
+    static func cycle() {
+        let targets = cycleTargets
+        let next = current().flatMap(targets.firstIndex(of:)).map { targets[($0 + 1) % targets.count] } ?? targets[0]
+        next.select()
+    }
+
+    /// Текущий выход, если это один из выходов круга.
+    static func current() -> Target? {
+        guard let id = defaultOutputDevice() else { return nil }
+        if transportType(of: id) == kAudioDeviceTransportTypeBuiltIn { return .mac }
+        let name = self.name(of: id) ?? ""
+        if name.localizedCaseInsensitiveContains("Cloud Flight S Game") { return .game }
+        if name.localizedCaseInsensitiveContains("Cloud Flight S Chat") { return .chat }
+        return nil
+    }
+
+    private static func defaultOutputDevice() -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var id = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id)
+        return status == noErr && id != 0 ? id : nil
+    }
+
     /// Сделать устройством вывода первое устройство вывода, в имени которого есть `nameContains`.
     @discardableResult
     static func select(nameContains needle: String) -> Bool {

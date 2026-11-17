@@ -48,6 +48,8 @@ struct HeadsetStatus: Equatable {
 ///    Коды: 00 мультимедиа (гарнитура только шлёт событие), 01 мониторинг микрофона, 02 game mix, 03 chat mix, 04 mute.
 ///  * состояние гарнитуры (`HeadsetStatus`) приходит отчётом 0x0A при каждом изменении; запрос
 ///    `06 00 00 00 ff 00 00 68 4a 8e` (как в HyperHeadset) возвращает input 0x07, в котором с байта 10 — тот же отчёт 0x0A.
+///  * 7.1 (как пишет NGENUITY) — три отчёта `06 00 0d 00 9b 01 00 68 4a 8e <01|02|08> 00 00 00 <вкл>`.
+///    Кнопку 7.1 гарнитура всегда обрабатывает сама; отключить это нельзя, можно только вернуть режим этой командой.
 final class HeadsetMonitor {
     static let vendorID = 0x0951   // 2385
     static let productID = 0x16EA  // 5866
@@ -64,6 +66,7 @@ final class HeadsetMonitor {
         0x4a, 0x8e, 0x0a, 0x00, 0x00, 0x00, 0xbb, 0x12, 0x01,
     ]
     private static let statusRequest: [UInt8] = [0x06, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x68, 0x4a, 0x8e]
+    private static let surroundPrefix: [UInt8] = [0x06, 0x00, 0x0d, 0x00, 0x9b, 0x01, 0x00, 0x68, 0x4a, 0x8e]
     private static let responseTimeout: TimeInterval = 5
     private static let inputBufferSize = 64
 
@@ -90,6 +93,8 @@ final class HeadsetMonitor {
     private var inputBuffer: UnsafeMutablePointer<UInt8>?
     private var timeoutTimer: Timer?
     private var pollTimer: Timer?
+    /// Сколько подряд отброшено показаний «0% при нормальном напряжении»; после трёх принимаем как есть.
+    private var zeroRetries = 0
 
     var pollInterval: TimeInterval {
         didSet { restartPolling() }
@@ -188,6 +193,19 @@ final class HeadsetMonitor {
         }
     }
 
+    /// Включить или выключить 7.1 — те же три отчёта, что шлёт NGENUITY (снято отладчиком, проверено с Mac).
+    /// Это установка, а не переключение. После неё DSP гарнитуры перезапускается, звук пропадает примерно на секунду.
+    func setSurround(_ on: Bool) {
+        guard device != nil else { return }
+        debugLog("7.1 → \(on ? "вкл" : "выкл")")
+        for (step, channel) in [UInt8(0x01), 0x02, 0x08].enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08 * Double(step)) { [weak self] in
+                guard let self, let device = self.device else { return }
+                _ = self.send(Self.surroundPrefix + [channel, 0x00, 0x00, 0x00, on ? 0x01 : 0x00], to: device)
+            }
+        }
+    }
+
     /// Output-отчёт 0x06: начало пакета, дополненное нулями до 62 байт.
     private func send(_ head: [UInt8], to device: IOHIDDevice) -> IOReturn {
         var report = [UInt8](repeating: 0, count: Self.outputReportLength)
@@ -253,6 +271,15 @@ final class HeadsetMonitor {
             guard (0...100).contains(percent) else { return }
             let millivolts = Int(bytes[5]) << 8 | Int(bytes[6])
             timeoutTimer?.invalidate()
+            // Гарнитура иногда (похоже, сразу после включения) отдаёт 0% при нормальном напряжении (3,77 В).
+            // Настоящие 0% — около 3,3 В, гарнитура тогда уже выключается. Такое показание не берём и переспрашиваем.
+            if percent == 0, millivolts >= 3500, zeroRetries < 3 {
+                zeroRetries += 1
+                debugLog("0% при \(millivolts) мВ — показание не готово, повтор \(zeroRetries) через 2 с")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.requestBattery() }
+                return
+            }
+            zeroRetries = 0
             lastReading = (percent, millivolts, Date())
             state = .battery(percent: percent, millivolts: millivolts)
             onReading?(percent)

@@ -41,9 +41,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let loginItem = NSMenuItem(title: L("Launch at Login"), action: #selector(toggleLoginItem), keyEquivalent: "")
     private var intervalItems: [NSMenuItem] = []
     private var buttonActionItems: [NSMenuItem] = []
+    /// Галочки выходов, между которыми переключает «Вывод звука по кругу».
+    private var cycleTargetItems: [NSMenuItem] = []
+    /// «Вывод звука по кругу ▸» у кнопки 7.1 и пункт «Назначить» внутри — с галочкой, когда действие выбрано.
+    private let cycleMenuItem = NSMenuItem(title: L("Sound Output in Turn"), action: nil, keyEquivalent: "")
+    private let cycleAssignItem = NSMenuItem(title: L("Assign to 7.1 Button"), action: #selector(toggleOutputCycle), keyEquivalent: "")
     private let pressRecognizer = ButtonPressRecognizer()
     /// Режимы кнопок записаны в гарнитуру в текущем сеансе связи.
     private var buttonModesSynced = false
+    /// Режим 7.1, который держим, пока кнопке 7.1 назначено действие Mac; `nil` — состояние ещё неизвестно.
+    private var surroundTarget: Bool?
+    private var surroundPressedAt = Date.distantPast
+    private var surroundRevertedAt = Date.distantPast
     private let accessItem = NSMenuItem(title: "", action: #selector(requestEventAccess), keyEquivalent: "")
 
     private let timeFormatter: DateFormatter = {
@@ -68,7 +77,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         monitor = HeadsetMonitor(pollInterval: TimeInterval(pollMinutes * 60))
         monitor.onChange = { [weak self] _ in self?.render() }
-        monitor.onStatus = { [weak self] _ in self?.render() }
+        monitor.onStatus = { [weak self] status in
+            self?.keepSurround(status)
+            self?.render()
+        }
         monitor.onReading = { [weak self] percent in
             guard let self else { return }
             self.estimator.record(percent: percent)
@@ -87,7 +99,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         estimator.maxGap = Self.maxReadingGap(pollMinutes: pollMinutes)
         pressRecognizer.hasDoubleAction = { [weak self] in self?.action(for: $0, double: true) != ButtonAction.none }
         pressRecognizer.onPress = { [weak self] button, double in self?.action(for: button, double: double).perform() }
-        monitor.onButton = { [weak self] in self?.pressRecognizer.press($0) }
+        monitor.onButton = { [weak self] button in
+            if button == .surround {
+                self?.surroundPressedAt = Date()
+                self?.surroundRevertedAt = .distantPast  // новое нажатие — откатываем заново
+            }
+            self?.pressRecognizer.press(button)
+        }
         render()
         monitor.start()
 
@@ -246,6 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let binding = item.representedObject as? ButtonBinding else { continue }
             item.state = action(for: binding.button, double: binding.double) == binding.action ? .on : .off
         }
+        updateCycleTargetItems()
         // Пункт про разрешение показываем, только если оно нужно и его ещё нет.
         accessItem.title = L("Allow Media Control (Accessibility)…")
         updateAccessItem()
@@ -280,7 +299,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func action(for button: HeadsetButton, double: Bool) -> ButtonAction {
-        defaults.string(forKey: defaultsKey(button, double: double)).flatMap(ButtonAction.init(rawValue:))
+        // У 7.1 двойного нажатия нет: пока гарнитура переключает режим, она задерживает следующее нажатие на 0,5–1,4 с.
+        if double, !button.supportsDoublePress { return .none }
+        return defaults.string(forKey: defaultsKey(button, double: double)).flatMap(ButtonAction.init(rawValue:))
             ?? (double ? button.defaultDoubleAction : button.defaultAction)
     }
 
@@ -290,7 +311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for button in HeadsetButton.allCases {
             let actionsMenu = NSMenu()
             actionsMenu.autoenablesItems = false
-            for double in [false, true] {
+            for double in button.supportsDoublePress ? [false, true] : [false] {
                 if double { actionsMenu.addItem(.separator()) }
                 let header = NSMenuItem(title: double ? L("Double Press") : L("Single Press"), action: nil, keyEquivalent: "")
                 header.isEnabled = false
@@ -309,22 +330,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     }
                 }
             }
+            if button == .surround {
+                // Переключение вывода по кругу — отдельным подменю: назначить и выбрать, какие выходы в круге.
+                actionsMenu.addItem(.separator())
+                let cycleMenu = NSMenu()
+                cycleMenu.autoenablesItems = false
+                cycleAssignItem.target = self
+                cycleMenu.addItem(cycleAssignItem)
+                cycleMenu.addItem(.separator())
+                let header = NSMenuItem(title: L("Outputs in Turn"), action: nil, keyEquivalent: "")
+                header.isEnabled = false
+                cycleMenu.addItem(header)
+                for target in AudioOutput.Target.allCases {
+                    let item = NSMenuItem(title: target.title, action: #selector(toggleCycleTarget(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.indentationLevel = 1
+                    item.representedObject = target.rawValue
+                    cycleMenu.addItem(item)
+                    cycleTargetItems.append(item)
+                }
+                cycleMenuItem.indentationLevel = 1
+                cycleMenuItem.submenu = cycleMenu
+                actionsMenu.addItem(cycleMenuItem)
+                actionsMenu.addItem(.separator())
+                actionsMenu.addItem(Self.noteItem(L("The headset switches 7.1 by itself.\nIf an action is assigned, the app switches\nthe mode back, and the sound drops for 1–2 s.\nDouble press does not work: while switching,\nthe headset delays the next press")))
+            }
             let buttonItem = NSMenuItem(title: button.title, action: nil, keyEquivalent: "")
             buttonItem.submenu = actionsMenu
             buttonsMenu.addItem(buttonItem)
         }
         buttonsMenu.addItem(.separator())
-        let note = NSMenuItem(title: String(format: L("HyperX functions run inside the headset\non every press, like in NGENUITY,\nso double press does not work with them.\nThe settings are written to the headset\nwhenever it connects.\nIf a double press is assigned, a single press\nfires after a %.1f s delay"), ButtonPressRecognizer.window), action: nil, keyEquivalent: "")
-        note.isEnabled = false
-        // Обычный title схлопывает переносы строк в одну обрезанную строку — многострочность даёт только attributedTitle.
-        note.attributedTitle = NSAttributedString(string: note.title, attributes: [
-            .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
-            .foregroundColor: NSColor.secondaryLabelColor,
-        ])
-        buttonsMenu.addItem(note)
+        buttonsMenu.addItem(Self.noteItem(String(format: L("HyperX functions run inside the headset\non every press, like in NGENUITY,\nso double press does not work with them.\nThe settings are written to the headset\nwhenever it connects.\nIf a double press is assigned, a single press\nfires after a %.1f s delay"), ButtonPressRecognizer.window)))
         let item = NSMenuItem(title: L("Headset Buttons"), action: nil, keyEquivalent: "")
         item.submenu = buttonsMenu
         return item
+    }
+
+    /// Неактивный многострочный пункт-пояснение мелким серым шрифтом.
+    private static func noteItem(_ text: String) -> NSMenuItem {
+        let note = NSMenuItem(title: text, action: nil, keyEquivalent: "")
+        note.isEnabled = false
+        // Обычный title схлопывает переносы строк в одну обрезанную строку — многострочность даёт только attributedTitle.
+        note.attributedTitle = NSAttributedString(string: text, attributes: [
+            .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ])
+        return note
     }
 
     private func addActionItem(_ action: ButtonAction, button: HeadsetButton, double: Bool, to menu: NSMenu) {
@@ -354,6 +405,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateAccessItem()
     }
 
+    /// Включить или выключить выход в круге. Меньше двух выходов оставить нельзя.
+    @objc private func toggleCycleTarget(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let target = AudioOutput.Target(rawValue: raw) else { return }
+        var targets = AudioOutput.cycleTargets
+        if let index = targets.firstIndex(of: target) {
+            guard targets.count > 2 else { NSSound.beep(); return }
+            targets.remove(at: index)
+        } else {
+            targets.append(target)
+        }
+        AudioOutput.cycleTargets = AudioOutput.Target.allCases.filter(targets.contains)
+        updateCycleTargetItems()
+    }
+
+    /// «Назначить кнопке 7.1»: включает вывод по кругу или снимает его («Ничего»).
+    @objc private func toggleOutputCycle() {
+        let assigned = action(for: .surround, double: false) == .outputCycle
+        defaults.set((assigned ? ButtonAction.none : .outputCycle).rawValue, forKey: defaultsKey(.surround, double: false))
+        updateCycleTargetItems()
+    }
+
+    private func updateCycleTargetItems() {
+        let assigned = action(for: .surround, double: false) == .outputCycle
+        cycleMenuItem.state = assigned ? .on : .off
+        cycleAssignItem.state = assigned ? .on : .off
+        let targets = AudioOutput.cycleTargets
+        for item in cycleTargetItems {
+            guard let raw = item.representedObject as? String, let target = AudioOutput.Target(rawValue: raw) else { continue }
+            let included = targets.contains(target)
+            item.state = included ? .on : .off
+            // Последние два выхода не снять — показываем это сразу.
+            item.isEnabled = !included || targets.count > 2
+        }
+    }
+
     /// Режимы четырёх кнопок для гарнитуры: функция гарнитуры или `00` (мультимедиа) для действий Mac.
     private var buttonModes: [UInt8] {
         HeadsetButton.allCases.compactMap { button in
@@ -371,6 +457,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         monitor.writeButtonModes(buttonModes) { [weak self] ok in
             // Не ушло — повторим при следующем показании заряда.
             if !ok { self?.buttonModesSynced = false }
+        }
+    }
+
+    /// Кнопке 7.1 назначено действие Mac — тогда переключение 7.1 самой гарнитурой откатываем.
+    private var holdsSurround: Bool {
+        action(for: .surround, double: false) != .none || action(for: .surround, double: true) != .none
+    }
+
+    /// Гарнитура сама переключает 7.1 по своей кнопке, запретить это нельзя. Если кнопка занята действием Mac,
+    /// сразу после переключения возвращаем прежний режим. Прочие изменения 7.1 просто запоминаем.
+    private func keepSurround(_ status: HeadsetStatus?) {
+        guard let status else { surroundTarget = nil; return }
+        let now = Date()
+        // Нажатие 7.1 → гарнитура меняет режим через ~0,5 с → откат занимает ещё ~1,3 с.
+        let afterPress = now.timeIntervalSince(surroundPressedAt) < 4
+        guard holdsSurround, afterPress else {
+            surroundTarget = status.surround
+            return
+        }
+        // Нажали, пока режим был неизвестен (сразу после включения): пришёл уже переключённый режим, прежний — обратный.
+        let target = surroundTarget ?? !status.surround
+        surroundTarget = target
+        // Пока откат идёт, могут прийти устаревшие отчёты — повторяем команду не чаще раза в 2 с.
+        if status.surround != target, now.timeIntervalSince(surroundRevertedAt) > 2 {
+            surroundRevertedAt = now
+            monitor.setSurround(target)
         }
     }
 

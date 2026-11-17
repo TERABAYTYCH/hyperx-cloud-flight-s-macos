@@ -90,6 +90,10 @@ The headset stores one mode per button: either one of these functions or "multim
 - choosing a Mac action for a button, single or double press, switches the button to multimedia automatically (a double-press action replaces the HyperX function on the single press with "Nothing");
 - choosing a HyperX function turns off the double press on that button: the headset reacts to every press, so a double press cannot be told apart. The 7.1 button has no HyperX functions.
 
+**The 7.1 button.** The headset always switches 7.1 surround by itself, and this cannot be turned off. If the 7.1 button has a Mac action, the app switches the mode back right after the press. The sound drops for 1–2 s while the headset switches. The 7.1 button has no double press: while switching, the headset sends the next press only 0.5–1.4 s later.
+
+The 7.1 button can also switch the sound output in turn: HyperX Game → HyperX Chat → Mac speakers → HyperX Game. Use **Sound Output in Turn** in its submenu: **Assign to 7.1 Button** turns it on, and the checkmarks below choose which outputs are in turn (at least two).
+
 The app writes the modes to the headset whenever the setup changes and every time the headset connects. If the buttons were set up differently in NGENUITY, the app overwrites that with its own setup.
 
 A double press is a second press of the same button within 300 ms. If a button has a double-press action, its single press fires after that delay. Buttons without one react instantly.
@@ -114,6 +118,7 @@ The dongle is a single HID device: VID `0x0951`, PID `0x16EA`.
 | ← | `0a 00 <dsp> 03 <flags> 00 <chat> xx 00 00 <game> xx` | status, sent on every change: `dsp & 02` 7.1 on; `flags & 02` mic muted, `flags & 10` mic monitoring; `chat`/`game` attenuation in dB as int8 (`00, fe, fc, f9, f5, f1, eb, e1` = 0 … −31 dB), `80` = off |
 | → | output `0x06`: `06 00 00 00 ff 00 00 68 4a 8e` padded with zeros | status request (as in [HyperHeadset](https://github.com/LennardKittner/HyperHeadset)) |
 | ← | input `0x07`: `07 00 04 00 ff 00 00 68 4a 8e` + the same `0a …` status from byte 10 | status reply |
+| → | `06 00 0d 00 9b 01 00 68 4a 8e <ch> 00 00 00 <on>` for `ch` = `01`, `02`, `08`, about 80 ms apart | set 7.1: `on` = `01` on, `00` off (captured from NGENUITY). The 7.1 button always switches the mode in the headset itself |
 | ← | consumer `02 01` / `02 02` | volume wheel, handled by macOS itself |
 
 A short press of the power button sends nothing. Raw captures are in [`docs/captures`](docs/captures). They were recorded with the button logger before the app existed. The button-mode command was captured from NGENUITY on Windows with a debugger and checked from the Mac.

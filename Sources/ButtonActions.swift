@@ -26,6 +26,10 @@ enum HeadsetButton: String, CaseIterable {
         }
     }
 
+    /// Двойное нажатие распознаётся у всех, кроме 7.1: переключая режим, гарнитура присылает следующее нажатие 7.1
+    /// только через 0,5–1,4 с, и двойное не отличить от двух одиночных.
+    var supportsDoublePress: Bool { self != .surround }
+
     var title: String {
         switch self {
         case .up: return L("Up")
@@ -60,11 +64,13 @@ enum HeadsetButton: String, CaseIterable {
 
 enum ButtonAction: String, CaseIterable {
     case none, playPause, next, previous, muteVolume, volumeUp, volumeDown, outputGame, outputChat, outputMac
+    /// Вывод звука по кругу между выбранными выходами (см. `AudioOutput.cycleTargets`). Пока только у кнопки 7.1.
+    case outputCycle
     // Функции, которые выполняет сама гарнитура (как в NGENUITY). Записываются в гарнитуру, Mac на нажатие не реагирует.
     case micMonitoring, gameMix, chatMix, micMute
 
     /// Действия, которые выполняет Mac.
-    static let macActions: [ButtonAction] = allCases.filter { $0.headsetMode == nil }
+    static let macActions: [ButtonAction] = allCases.filter { $0.headsetMode == nil && $0 != .outputCycle }
     /// Функции гарнитуры.
     static let headsetFunctions: [ButtonAction] = allCases.filter { $0.headsetMode != nil }
 
@@ -91,6 +97,7 @@ enum ButtonAction: String, CaseIterable {
         case .outputGame: return L("Sound Output → HyperX Game")
         case .outputChat: return L("Sound Output → HyperX Chat")
         case .outputMac: return L("Sound Output → Mac Speakers")
+        case .outputCycle: return L("Sound Output in Turn")
         case .micMonitoring: return L("Mic Monitoring")
         case .gameMix: return L("Game Mix")
         case .chatMix: return L("Chat Mix")
@@ -118,6 +125,7 @@ enum ButtonAction: String, CaseIterable {
         case .outputGame: AudioOutput.select(nameContains: "Cloud Flight S Game")
         case .outputChat: AudioOutput.select(nameContains: "Cloud Flight S Chat")
         case .outputMac: AudioOutput.selectBuiltIn()
+        case .outputCycle: AudioOutput.cycle()
         }
     }
 }
