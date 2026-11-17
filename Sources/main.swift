@@ -16,6 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let defaults = UserDefaults.standard
     private var statusItem: NSStatusItem!
     private var appearanceObservation: NSKeyValueObservation?
+    /// Под какую строку меню нарисован значок: тёмную или светлую.
+    private var iconIsDark: Bool?
+    private var appearanceCheck: DispatchWorkItem?
     private var monitor: HeadsetMonitor!
 
     private let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -74,8 +77,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.behavior = []  // не даём убрать значок перетаскиванием с ⌘ — видимостью управляем сами
         statusItem.button?.imagePosition = .imageOnly
         // Строка меню меняет тему вместе с системой и обоями — перерисовываем значок.
+        // Пока строка меню ставит новую картинку значка, тема кнопки на мгновение скачет (светлая ↔ тёмная),
+        // и перерисовка в ответ на каждое уведомление крутилась бы по кругу, нагружая процессор. Поэтому смотрим
+        // на тему, когда уведомления утихли, и перерисовываем, только если она правда другая.
         appearanceObservation = statusItem.button?.observe(\.effectiveAppearance) { [weak self] _, _ in
-            DispatchQueue.main.async { self?.render() }
+            DispatchQueue.main.async { self?.scheduleAppearanceCheck() }
         }
         statusItem.menu = buildMenu()
 
@@ -747,12 +753,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return max(step, (seconds / step).rounded() * step)
     }
 
+    private func isDarkMenuBar(_ button: NSStatusBarButton) -> Bool {
+        button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    private func scheduleAppearanceCheck() {
+        appearanceCheck?.cancel()
+        let check = DispatchWorkItem { [weak self] in
+            guard let self, let button = self.statusItem.button, self.isDarkMenuBar(button) != self.iconIsDark else { return }
+            debugLog("строка меню стала \(self.isDarkMenuBar(button) ? "тёмной" : "светлой")")
+            self.render()
+        }
+        appearanceCheck = check
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: check)
+    }
+
     private func render() {
         guard let button = statusItem.button else { return }
         let showPercent = defaults.bool(forKey: Keys.showPercent)
 
         // Значок не шаблонный (в нём фирменный красный), поэтому тему строки меню учитываем сами.
-        let dark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let dark = isDarkMenuBar(button)
+        iconIsDark = dark
         let icon: NSImage
         let tooltip: String
 
