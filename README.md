@@ -90,7 +90,7 @@ The headset stores one mode per button: either one of these functions or "multim
 - choosing a Mac action for a button, single or double press, switches the button to multimedia automatically (a double-press action replaces the HyperX function on the single press with "Nothing");
 - choosing a HyperX function turns off the double press on that button: the headset reacts to every press, so a double press cannot be told apart. The 7.1 button has no HyperX functions.
 
-**The 7.1 button.** The headset always switches 7.1 surround by itself, and this cannot be turned off. If the 7.1 button has a Mac action, the app switches the mode back right after the press. The sound drops for 1–2 s while the headset switches. The 7.1 button has no double press: while switching, the headset sends the next press only 0.5–1.4 s later.
+**The 7.1 button.** The headset always switches 7.1 surround by itself, and this cannot be turned off. If the 7.1 button has a Mac action, the app switches the headset back to the **base mode** (stereo or 7.1, chosen in the button's submenu) right after the press and whenever the headset comes on in another mode. The sound drops for 1–2 s while the headset switches. The 7.1 button has no double press: while switching, the headset sends the next press only 0.5–1.4 s later.
 
 The 7.1 button can also switch the sound output in turn: HyperX Game → HyperX Chat → Mac speakers → HyperX Game. Use **Sound Output in Turn** in its submenu: **Assign to 7.1 Button** turns it on, and the checkmarks below choose which outputs are in turn (at least two).
 

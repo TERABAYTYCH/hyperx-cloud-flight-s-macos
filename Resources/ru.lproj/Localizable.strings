@@ -58,8 +58,10 @@
 "Game" = "Игра";
 "Chat" = "Чат";
 "OFF" = "ВЫКЛ";
-"The headset switches 7.1 by itself.\nIf an action is assigned, the app switches\nthe mode back, and the sound drops for 1–2 s.\nDouble press does not work: while switching,\nthe headset delays the next press" = "Гарнитура переключает 7.1 сама.\nЕсли назначено действие, приложение\nвозвращает режим, звук пропадает на 1–2 с.\nДвойное нажатие не работает: пока гарнитура\nпереключается, она задерживает следующее нажатие";
+"The headset switches 7.1 by itself.\nIf an action is assigned, the app switches\nthe base mode back, and the sound drops for 1–2 s.\nDouble press does not work: while switching,\nthe headset delays the next press" = "Гарнитура переключает 7.1 сама.\nЕсли назначено действие, приложение\nвозвращает базовый режим, звук пропадает на 1–2 с.\nДвойное нажатие не работает: пока гарнитура\nпереключается, она задерживает следующее нажатие";
 "Sound Output in Turn" = "Вывод звука по кругу";
 "Mac Speakers" = "Динамики Mac";
 "Assign to 7.1 Button" = "Назначить кнопке 7.1";
 "Outputs in Turn" = "Выходы в круге";
+"Base Mode (with an Action Assigned)" = "Базовый режим (если назначено действие)";
+"Stereo" = "Стерео";

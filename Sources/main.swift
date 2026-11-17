@@ -50,9 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Режимы кнопок записаны в гарнитуру в текущем сеансе связи.
     private var buttonModesSynced = false
     /// Режим 7.1, который держим, пока кнопке 7.1 назначено действие Mac; `nil` — состояние ещё неизвестно.
-    private var surroundTarget: Bool?
-    private var surroundPressedAt = Date.distantPast
+    /// Когда последний раз отправляли гарнитуре базовый режим 7.1.
     private var surroundRevertedAt = Date.distantPast
+    /// Пункты «Базовый режим» у кнопки 7.1: стерео и 7.1.
+    private var surroundBaseItems: [NSMenuItem] = []
     private let accessItem = NSMenuItem(title: "", action: #selector(requestEventAccess), keyEquivalent: "")
 
     private let timeFormatter: DateFormatter = {
@@ -101,7 +102,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pressRecognizer.onPress = { [weak self] button, double in self?.action(for: button, double: double).perform() }
         monitor.onButton = { [weak self] button in
             if button == .surround {
-                self?.surroundPressedAt = Date()
                 self?.surroundRevertedAt = .distantPast  // новое нажатие — откатываем заново
             }
             self?.pressRecognizer.press(button)
@@ -264,7 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let binding = item.representedObject as? ButtonBinding else { continue }
             item.state = action(for: binding.button, double: binding.double) == binding.action ? .on : .off
         }
-        updateCycleTargetItems()
+        updateSurroundItems()
         // Пункт про разрешение показываем, только если оно нужно и его ещё нет.
         accessItem.title = L("Allow Media Control (Accessibility)…")
         updateAccessItem()
@@ -352,8 +352,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 cycleMenuItem.indentationLevel = 1
                 cycleMenuItem.submenu = cycleMenu
                 actionsMenu.addItem(cycleMenuItem)
+                // Режим, к которому возвращаемся, если кнопке назначено действие.
                 actionsMenu.addItem(.separator())
-                actionsMenu.addItem(Self.noteItem(L("The headset switches 7.1 by itself.\nIf an action is assigned, the app switches\nthe mode back, and the sound drops for 1–2 s.\nDouble press does not work: while switching,\nthe headset delays the next press")))
+                let baseHeader = NSMenuItem(title: L("Base Mode (with an Action Assigned)"), action: nil, keyEquivalent: "")
+                baseHeader.isEnabled = false
+                actionsMenu.addItem(baseHeader)
+                for (tag, title) in [(0, L("Stereo")), (1, L("7.1 Surround"))] {
+                    let item = NSMenuItem(title: title, action: #selector(selectSurroundBase(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.tag = tag
+                    item.indentationLevel = 1
+                    actionsMenu.addItem(item)
+                    surroundBaseItems.append(item)
+                }
+                actionsMenu.addItem(.separator())
+                actionsMenu.addItem(Self.noteItem(L("The headset switches 7.1 by itself.\nIf an action is assigned, the app switches\nthe base mode back, and the sound drops for 1–2 s.\nDouble press does not work: while switching,\nthe headset delays the next press")))
             }
             let buttonItem = NSMenuItem(title: button.title, action: nil, keyEquivalent: "")
             buttonItem.submenu = actionsMenu
@@ -401,6 +414,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             defaults.set(ButtonAction.none.rawValue, forKey: defaultsKey(button, double: false))
         }
         if buttonModes != oldModes { syncButtonModes() }
+        // Назначили действие на 7.1 — сразу приводим гарнитуру к базовому режиму.
+        if button == .surround { keepSurround(monitor.status) }
         if action.needsEventAccess && !mediaAccessGranted { CGRequestPostEventAccess() }
         updateAccessItem()
     }
@@ -416,17 +431,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             targets.append(target)
         }
         AudioOutput.cycleTargets = AudioOutput.Target.allCases.filter(targets.contains)
-        updateCycleTargetItems()
+        updateSurroundItems()
     }
 
     /// «Назначить кнопке 7.1»: включает вывод по кругу или снимает его («Ничего»).
     @objc private func toggleOutputCycle() {
         let assigned = action(for: .surround, double: false) == .outputCycle
         defaults.set((assigned ? ButtonAction.none : .outputCycle).rawValue, forKey: defaultsKey(.surround, double: false))
-        updateCycleTargetItems()
+        updateSurroundItems()
+        keepSurround(monitor.status)
     }
 
-    private func updateCycleTargetItems() {
+    private func updateSurroundItems() {
+        for item in surroundBaseItems { item.state = (item.tag == 1) == surroundBase ? .on : .off }
         let assigned = action(for: .surround, double: false) == .outputCycle
         cycleMenuItem.state = assigned ? .on : .off
         cycleAssignItem.state = assigned ? .on : .off
@@ -466,24 +483,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Гарнитура сама переключает 7.1 по своей кнопке, запретить это нельзя. Если кнопка занята действием Mac,
-    /// сразу после переключения возвращаем прежний режим. Прочие изменения 7.1 просто запоминаем.
+    /// возвращаем базовый режим: и после нажатия, и если гарнитура включилась в другом режиме.
     private func keepSurround(_ status: HeadsetStatus?) {
-        guard let status else { surroundTarget = nil; return }
+        guard holdsSurround, let status, status.surround != surroundBase else { return }
+        // Пока откат идёт (~1,3 с), могут прийти устаревшие отчёты — повторяем команду не чаще раза в 2 с.
         let now = Date()
-        // Нажатие 7.1 → гарнитура меняет режим через ~0,5 с → откат занимает ещё ~1,3 с.
-        let afterPress = now.timeIntervalSince(surroundPressedAt) < 4
-        guard holdsSurround, afterPress else {
-            surroundTarget = status.surround
-            return
-        }
-        // Нажали, пока режим был неизвестен (сразу после включения): пришёл уже переключённый режим, прежний — обратный.
-        let target = surroundTarget ?? !status.surround
-        surroundTarget = target
-        // Пока откат идёт, могут прийти устаревшие отчёты — повторяем команду не чаще раза в 2 с.
-        if status.surround != target, now.timeIntervalSince(surroundRevertedAt) > 2 {
-            surroundRevertedAt = now
-            monitor.setSurround(target)
-        }
+        guard now.timeIntervalSince(surroundRevertedAt) > 2 else { return }
+        surroundRevertedAt = now
+        monitor.setSurround(surroundBase)
+    }
+
+    /// Базовый режим 7.1, к которому возвращаемся, если кнопке 7.1 назначено действие: `false` — стерео.
+    private var surroundBase: Bool {
+        get { defaults.bool(forKey: "surround.base") }
+        set { defaults.set(newValue, forKey: "surround.base") }
+    }
+
+    @objc private func selectSurroundBase(_ sender: NSMenuItem) {
+        surroundBase = sender.tag == 1
+        updateSurroundItems()
+        surroundRevertedAt = .distantPast
+        keepSurround(monitor.status)
     }
 
     /// Последнее известное состояние разрешения. Обновляется проверкой в свежем процессе, потому что
