@@ -563,6 +563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateAccessItem() {
         accessItem.isHidden = !needsMediaAccess || mediaAccessGranted
+        realignHighlights()  // пункт мог появиться, пока открыто подменю кнопок
     }
 
     /// Следим за списком «Универсального доступа»: macOS рассылает уведомление при каждом его изменении.
@@ -669,6 +670,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for item in hintItems { item.isHidden = hide }
         // Без подсказок подменю могут стать уже — даём переключателям вернуть свою ширину.
         for item in toggleItems { item.resetWidth() }
+        realignHighlights()
+    }
+
+    /// Пункты появились или пропали, пока меню открыто: macOS пересчитывает строки, а подсветку открытого
+    /// подменю оставляет со сдвигом. Возвращаем её на место во всех открытых меню, а переключатели
+    /// растягиваем на новую ширину меню.
+    private func realignHighlights() {
+        guard menuIsOpen else { return }
+        // Сразу после изменения и ещё раз чуть позже: расширяется меню не в тот же проход.
+        for delay in [0.0, 0.15] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                func walk(_ menu: NSMenu?) {
+                    guard let menu else { return }
+                    menu.realignHighlight()
+                    for item in menu.items {
+                        (item as? ToggleMenuItem)?.fitMenuWidth()
+                        walk(item.submenu)
+                    }
+                }
+                walk(self.statusItem.menu)
+            }
+        }
     }
 
     @objc private func toggleHideWhenOffline() {
@@ -785,6 +808,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
         statusSeparator.isHidden = statusLines.values.allSatisfy(\.isHidden)
+        realignHighlights()
 
         if let reading = monitor.lastReading {
             let time = timeFormatter.string(from: reading.date)

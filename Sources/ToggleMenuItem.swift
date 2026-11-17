@@ -24,6 +24,9 @@ final class ToggleMenuItem: NSMenuItem {
     /// См. `ToggleMenuItemView.resetWidth`.
     func resetWidth() { (view as? ToggleMenuItemView)?.resetWidth() }
 
+    /// См. `ToggleMenuItemView.fitMenuWidth`.
+    func fitMenuWidth() { (view as? ToggleMenuItemView)?.fitMenuWidth() }
+
     private func refresh() {
         (view as? ToggleMenuItemView)?.updateSize()
         view?.needsDisplay = true
@@ -84,6 +87,22 @@ private final class ToggleMenuItemView: NSView {
         updateSize()
     }
 
+    /// Растянуть на ширину строки меню. После `resetWidth` меню пересчитывает свою ширину, но обёртка пункта
+    /// (системный вид между строкой меню и нашим видом) остаётся по ширине текста — подсветка не доходила бы
+    /// до правого края. Растягиваем обёртку и себя до строки. Вызывать, когда меню уже перестроилось.
+    func fitMenuWidth() {
+        // Только в открытом меню: у закрытого вид мог остаться в старой строке со старой шириной.
+        guard window?.isVisible == true, let wrapper = superview else { return }
+        var row = wrapper.superview
+        while let current = row, !(current is NSTableRowView) { row = current.superview }
+        guard let width = row?.bounds.width, width > 0 else { return }
+        if wrapper.frame.width != width { wrapper.setFrameSize(NSSize(width: width, height: wrapper.frame.height)) }
+        if frame.width != width {
+            setFrameSize(NSSize(width: width, height: Self.height))
+            needsDisplay = true
+        }
+    }
+
     func updateSize() {
         let textX = Self.textX(level: item?.indentationLevel ?? 0)
         let width = textX + ((item?.title ?? "") as NSString).size(withAttributes: [.font: Self.font]).width + 20
@@ -118,7 +137,14 @@ private final class ToggleMenuItemView: NSView {
         guard let item, item.isEnabled else { return false }
         if item.isHighlighted { return true }
         let other = item.menu?.highlightedItem
-        return hovered && (other == nil || other === item)
+        return hovered && mouseInside && (other == nil || other === item)
+    }
+
+    /// Курсор действительно над пунктом. Пока окно подменю появляется и раскладывает пункты, пункт может получить
+    /// «курсор вошёл» без последующего «вышел» — и мигнул бы подсветкой, хотя курсор в родительском меню.
+    private var mouseInside: Bool {
+        guard let window else { return false }
+        return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 
     override func updateTrackingAreas() {
