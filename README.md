@@ -28,9 +28,9 @@ This is a macOS port of [CubE135/hyperx-cloud-flight-s-battery-monitor](https://
 - **Estimated time left.** Shows how long the charge will last.
 - **Headset status.** Shows the microphone, mic monitoring, game/chat balance and 7.1.
 - **Headset buttons.** Assigns media keys, sound output or HyperX functions to the buttons.
-- **Hiding the icon.** Hides the icon when the headset is off.
+- **Hiding the icon.** Hides the icon when the headset is off. Opening the app again shows the menu.
 - **Reconnecting.** Picks up the dongle, the headset turning on and the Mac waking.
-- **Settings.** Set the polling interval and launch at login.
+- **Settings.** Set the polling interval and launch at login, hide the hints in the menu.
 - **Languages.** English and Russian.
 
 ## Install

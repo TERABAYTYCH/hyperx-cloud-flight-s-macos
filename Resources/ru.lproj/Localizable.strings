@@ -18,7 +18,7 @@
 "Launch at Login" = "Запускать при входе";
 "Refresh Now" = "Обновить сейчас";
 "Polling Interval" = "Интервал опроса";
-"To bring a hidden icon back for a minute, open the app again" = "Скрытый значок можно вернуть на минуту, запустив приложение ещё раз";
+"When the icon is hidden, open the app again to show the menu" = "Когда значок скрыт, запустите приложение ещё раз — откроется меню";
 "Quit" = "Выйти";
 "Allow Media Control (Accessibility)…" = "Разрешить управление медиа (Универсальный доступ)…";
 "Double Press" = "Двойное нажатие";
@@ -65,3 +65,5 @@
 "Outputs in Turn" = "Выходы в круге";
 "Base Mode (with an Action Assigned)" = "Базовый режим (если назначено действие)";
 "Stereo" = "Стерео";
+"At least two outputs are needed\nto switch between them" = "Нужно хотя бы два выхода,\nчтобы было между чем переключать";
+"Hide Hints" = "Скрыть подсказки";

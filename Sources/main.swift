@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         static let pollMinutes = "pollMinutes"
         static let showPercent = "showPercent"
         static let hideWhenOffline = "hideWhenOffline"
+        static let hideHints = "hideHints"
     }
     private static let intervals = [1, 5, 15, 30, 60]
     private static let lowBatteryThreshold = 15
@@ -25,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Отделяет строки состояния от заряда; прячется вместе с ними.
     private let statusSeparator = NSMenuItem.separator()
     private var statusToggleItems: [NSMenuItem] = []
-    private let statusAllItem = NSMenuItem(title: "", action: #selector(toggleAllStatusFields), keyEquivalent: "")
+    private let statusAllItem = ToggleMenuItem(title: "", action: #selector(toggleAllStatusFields), keyEquivalent: "")
     private let estimator = BatteryEstimator()
     private let durationFormatter: DateComponentsFormatter = {
         let f = DateComponentsFormatter()
@@ -34,22 +35,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         f.maximumUnitCount = 2
         return f
     }()
-    private let showPercentItem = NSMenuItem(title: L("Show Percentage in Icon"), action: #selector(toggleShowPercent), keyEquivalent: "")
-    private let hideOfflineItem = NSMenuItem(title: L("Hide When Headset Is Off"), action: #selector(toggleHideWhenOffline), keyEquivalent: "")
+    private let showPercentItem = ToggleMenuItem(title: L("Show Percentage in Icon"), action: #selector(toggleShowPercent), keyEquivalent: "")
+    private let hideHintsItem = ToggleMenuItem(title: L("Hide Hints"), action: #selector(toggleHideHints), keyEquivalent: "")
+    /// Подсказки в подменю (пояснения и разделители перед ними).
+    private var hintItems: [NSMenuItem] = []
+    private let hideOfflineItem = ToggleMenuItem(title: L("Hide When Headset Is Off"), action: #selector(toggleHideWhenOffline), keyEquivalent: "")
     private var revealTimer: Timer?
     private var menuIsOpen = false
-    private let loginItem = NSMenuItem(title: L("Launch at Login"), action: #selector(toggleLoginItem), keyEquivalent: "")
+    private let loginItem = ToggleMenuItem(title: L("Launch at Login"), action: #selector(toggleLoginItem), keyEquivalent: "")
     private var intervalItems: [NSMenuItem] = []
     private var buttonActionItems: [NSMenuItem] = []
     /// Галочки выходов, между которыми переключает «Вывод звука по кругу».
     private var cycleTargetItems: [NSMenuItem] = []
     /// «Вывод звука по кругу ▸» у кнопки 7.1 и пункт «Назначить» внутри — с галочкой, когда действие выбрано.
     private let cycleMenuItem = NSMenuItem(title: L("Sound Output in Turn"), action: nil, keyEquivalent: "")
-    private let cycleAssignItem = NSMenuItem(title: L("Assign to 7.1 Button"), action: #selector(toggleOutputCycle), keyEquivalent: "")
+    private let cycleAssignItem = ToggleMenuItem(title: L("Assign to 7.1 Button"), action: #selector(toggleOutputCycle), keyEquivalent: "")
     private let pressRecognizer = ButtonPressRecognizer()
     /// Режимы кнопок записаны в гарнитуру в текущем сеансе связи.
     private var buttonModesSynced = false
-    /// Режим 7.1, который держим, пока кнопке 7.1 назначено действие Mac; `nil` — состояние ещё неизвестно.
     /// Когда последний раз отправляли гарнитуре базовый режим 7.1.
     private var surroundRevertedAt = Date.distantPast
     /// Пункты «Базовый режим» у кнопки 7.1: стерео и 7.1.
@@ -138,9 +141,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Повторный запуск уже работающего приложения (Finder, Spotlight, `open`) — показываем скрытый значок.
+    /// Повторный запуск уже работающего приложения (Finder, Spotlight, `open`) — показываем скрытый значок и открываем меню.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         reveal()
+        // Сразу открываем меню: иначе при выключенной гарнитуре и скрытом значке до настроек и «Выйти» не добраться.
+        // Небольшая пауза — значок должен успеть появиться в строке меню.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, !self.menuIsOpen else { return }
+            self.statusItem.button?.performClick(nil)
+        }
         return false
     }
 
@@ -197,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let intervalMenu = NSMenu()
         for minutes in Self.intervals {
-            let item = NSMenuItem(title: String(format: L("%d min"), minutes), action: #selector(selectInterval(_:)), keyEquivalent: "")
+            let item = ToggleMenuItem(title: String(format: L("%d min"), minutes), action: #selector(selectInterval(_:)), keyEquivalent: "")
             item.target = self
             item.tag = minutes
             intervalMenu.addItem(item)
@@ -221,7 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusMenu.addItem(statusAllItem)
         statusMenu.addItem(.separator())
         for field in StatusField.allCases {
-            let item = NSMenuItem(title: field.title, action: #selector(toggleStatusField(_:)), keyEquivalent: "")
+            let item = ToggleMenuItem(title: field.title, action: #selector(toggleStatusField(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = field.rawValue
             statusMenu.addItem(item)
@@ -231,7 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusMenuItem.submenu = statusMenu
         menu.addItem(statusMenuItem)
         hideOfflineItem.target = self
-        hideOfflineItem.toolTip = L("To bring a hidden icon back for a minute, open the app again")
+        hideOfflineItem.toolTip = L("When the icon is hidden, open the app again to show the menu")
         menu.addItem(hideOfflineItem)
         loginItem.target = self
         menu.addItem(loginItem)
@@ -239,6 +248,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let quit = NSMenuItem(title: L("Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
+        Self.reserveStateColumn(menu)
+        Self.reserveStateColumn(statusMenu)
         return menu
     }
 
@@ -255,15 +266,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Состояние могли поменять кнопками или в другой программе — уточняем, пока меню открыто.
         if case .battery = monitor.state { monitor.requestStatus() }
         hideOfflineItem.state = defaults.bool(forKey: Keys.hideWhenOffline) ? .on : .off
-        switch SMAppService.mainApp.status {
-        case .enabled: loginItem.state = .on
-        case .requiresApproval: loginItem.state = .mixed
-        default: loginItem.state = .off
-        }
-        for item in buttonActionItems {
-            guard let binding = item.representedObject as? ButtonBinding else { continue }
-            item.state = action(for: binding.button, double: binding.double) == binding.action ? .on : .off
-        }
+        updateHints()
+        updateLoginItem()
+        updateButtonActionItems()
         updateSurroundItems()
         // Пункт про разрешение показываем, только если оно нужно и его ещё нет.
         accessItem.title = L("Allow Media Control (Accessibility)…")
@@ -342,13 +347,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 header.isEnabled = false
                 cycleMenu.addItem(header)
                 for target in AudioOutput.Target.allCases {
-                    let item = NSMenuItem(title: target.title, action: #selector(toggleCycleTarget(_:)), keyEquivalent: "")
+                    let item = ToggleMenuItem(title: target.title, action: #selector(toggleCycleTarget(_:)), keyEquivalent: "")
                     item.target = self
                     item.indentationLevel = 1
                     item.representedObject = target.rawValue
                     cycleMenu.addItem(item)
                     cycleTargetItems.append(item)
                 }
+                addHint(L("At least two outputs are needed\nto switch between them"), to: cycleMenu)
+                Self.reserveStateColumn(cycleMenu)
                 cycleMenuItem.indentationLevel = 1
                 cycleMenuItem.submenu = cycleMenu
                 actionsMenu.addItem(cycleMenuItem)
@@ -358,25 +365,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 baseHeader.isEnabled = false
                 actionsMenu.addItem(baseHeader)
                 for (tag, title) in [(0, L("Stereo")), (1, L("7.1 Surround"))] {
-                    let item = NSMenuItem(title: title, action: #selector(selectSurroundBase(_:)), keyEquivalent: "")
+                    let item = ToggleMenuItem(title: title, action: #selector(selectSurroundBase(_:)), keyEquivalent: "")
                     item.target = self
                     item.tag = tag
                     item.indentationLevel = 1
                     actionsMenu.addItem(item)
                     surroundBaseItems.append(item)
                 }
-                actionsMenu.addItem(.separator())
-                actionsMenu.addItem(Self.noteItem(L("The headset switches 7.1 by itself.\nIf an action is assigned, the app switches\nthe base mode back, and the sound drops for 1–2 s.\nDouble press does not work: while switching,\nthe headset delays the next press")))
+                addHint(L("The headset switches 7.1 by itself.\nIf an action is assigned, the app switches\nthe base mode back, and the sound drops for 1–2 s.\nDouble press does not work: while switching,\nthe headset delays the next press"), to: actionsMenu)
             }
             let buttonItem = NSMenuItem(title: button.title, action: nil, keyEquivalent: "")
             buttonItem.submenu = actionsMenu
             buttonsMenu.addItem(buttonItem)
         }
+        // «Скрыть подсказки» — сразу под полосой, над общей подсказкой; сам пункт не прячется.
         buttonsMenu.addItem(.separator())
-        buttonsMenu.addItem(Self.noteItem(String(format: L("HyperX functions run inside the headset\non every press, like in NGENUITY,\nso double press does not work with them.\nThe settings are written to the headset\nwhenever it connects.\nIf a double press is assigned, a single press\nfires after a %.1f s delay"), ButtonPressRecognizer.window)))
+        hideHintsItem.target = self
+        buttonsMenu.addItem(hideHintsItem)
+        addHint(separator: false, String(format: L("HyperX functions run inside the headset\non every press, like in NGENUITY,\nso double press does not work with them.\nThe settings are written to the headset\nwhenever it connects.\nIf a double press is assigned, a single press\nfires after a %.1f s delay"), ButtonPressRecognizer.window), to: buttonsMenu)
+        Self.reserveStateColumn(buttonsMenu)  // для «Скрыть подсказки»
         let item = NSMenuItem(title: L("Headset Buttons"), action: nil, keyEquivalent: "")
         item.submenu = buttonsMenu
         return item
+    }
+
+    /// Подсказка в конце подменю: разделитель и пояснение. Обе строки прячет «Скрыть подсказки».
+    private func addHint(separator: Bool = true, _ text: String, to menu: NSMenu) {
+        if separator {
+            let line = NSMenuItem.separator()
+            menu.addItem(line)
+            hintItems.append(line)
+        }
+        let note = Self.noteItem(text)
+        menu.addItem(note)
+        hintItems.append(note)
     }
 
     /// Неактивный многострочный пункт-пояснение мелким серым шрифтом.
@@ -392,7 +414,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func addActionItem(_ action: ButtonAction, button: HeadsetButton, double: Bool, to menu: NSMenu) {
-        let item = NSMenuItem(title: action.title, action: #selector(selectButtonAction(_:)), keyEquivalent: "")
+        let item = ToggleMenuItem(title: action.title, action: #selector(selectButtonAction(_:)), keyEquivalent: "")
         item.target = self
         item.indentationLevel = 1
         item.representedObject = ButtonBinding(button: button, double: double, action: action)
@@ -418,6 +440,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if button == .surround { keepSurround(monitor.status) }
         if action.needsEventAccess && !mediaAccessGranted { CGRequestPostEventAccess() }
         updateAccessItem()
+        // Меню остаётся открытым — галочки обновляем сразу (выбор мог снять двойное нажатие или функцию HyperX).
+        updateButtonActionItems()
+        updateSurroundItems()
     }
 
     /// Включить или выключить выход в круге. Меньше двух выходов оставить нельзя.
@@ -439,7 +464,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let assigned = action(for: .surround, double: false) == .outputCycle
         defaults.set((assigned ? ButtonAction.none : .outputCycle).rawValue, forKey: defaultsKey(.surround, double: false))
         updateSurroundItems()
+        updateButtonActionItems()  // меню остаётся открытым — снимаем галочку с прежнего действия сразу
         keepSurround(monitor.status)
+    }
+
+    private func updateButtonActionItems() {
+        for item in buttonActionItems {
+            guard let binding = item.representedObject as? ButtonBinding else { continue }
+            item.state = action(for: binding.button, double: binding.double) == binding.action ? .on : .off
+        }
+    }
+
+    /// macOS убирает колонку галочек, если ни у одного системного пункта меню галочка не стоит, — и системный текст
+    /// уезжает влево от пунктов `ToggleMenuItem`, которые рисуют колонку всегда. Пустая картинка «выключено»
+    /// у одного системного пункта держит колонку на месте.
+    private static func reserveStateColumn(_ menu: NSMenu) {
+        guard let item = menu.items.first(where: { $0.view == nil && !$0.isSeparatorItem }) else { return }
+        item.offStateImage = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { _ in true }
     }
 
     private func updateSurroundItems() {
@@ -566,6 +607,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func selectInterval(_ sender: NSMenuItem) {
         pollMinutes = sender.tag
+        for item in intervalItems { item.state = item.tag == pollMinutes ? .on : .off }
         monitor.pollInterval = TimeInterval(sender.tag * 60)
         estimator.maxGap = Self.maxReadingGap(pollMinutes: sender.tag)
         // Свежее показание сразу: иначе шаг от старого, редкого опроса оценщик примет за перерыв.
@@ -601,16 +643,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleShowPercent() {
         defaults.set(!defaults.bool(forKey: Keys.showPercent), forKey: Keys.showPercent)
+        showPercentItem.state = defaults.bool(forKey: Keys.showPercent) ? .on : .off  // меню остаётся открытым
         render()
+    }
+
+    @objc private func toggleHideHints() {
+        defaults.set(!defaults.bool(forKey: Keys.hideHints), forKey: Keys.hideHints)
+        updateHints()
+    }
+
+    /// Все пункты-переключатели во всех меню.
+    private var toggleItems: [ToggleMenuItem] {
+        func walk(_ menu: NSMenu?) -> [ToggleMenuItem] {
+            (menu?.items ?? []).flatMap { item -> [ToggleMenuItem] in
+                if let toggle = item as? ToggleMenuItem { return [toggle] }
+                return walk(item.submenu)
+            }
+        }
+        return walk(statusItem.menu)
+    }
+
+    private func updateHints() {
+        let hide = defaults.bool(forKey: Keys.hideHints)
+        hideHintsItem.state = hide ? .on : .off
+        for item in hintItems { item.isHidden = hide }
+        // Без подсказок подменю могут стать уже — даём переключателям вернуть свою ширину.
+        for item in toggleItems { item.resetWidth() }
     }
 
     @objc private func toggleHideWhenOffline() {
         defaults.set(!defaults.bool(forKey: Keys.hideWhenOffline), forKey: Keys.hideWhenOffline)
+        hideOfflineItem.state = defaults.bool(forKey: Keys.hideWhenOffline) ? .on : .off
         // Включили скрытие из меню — не прячем значок прямо из-под курсора, даём минуту.
         reveal()
     }
 
+    private func updateLoginItem() {
+        switch SMAppService.mainApp.status {
+        case .enabled: loginItem.state = .on
+        case .requiresApproval: loginItem.state = .mixed
+        default: loginItem.state = .off
+        }
+    }
+
     @objc private func toggleLoginItem() {
+        defer { updateLoginItem() }  // меню остаётся открытым — галочку обновляем сразу
         do {
             if SMAppService.mainApp.status == .enabled {
                 try SMAppService.mainApp.unregister()
@@ -618,10 +695,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 try SMAppService.mainApp.register()
                 // macOS может потребовать подтвердить объект входа вручную.
                 if SMAppService.mainApp.status == .requiresApproval {
+                    statusItem.menu?.cancelTracking()
                     SMAppService.openSystemSettingsLoginItems()
                 }
             }
         } catch {
+            // Окно ошибки поверх открытого меню не показать — сначала закрываем меню.
+            statusItem.menu?.cancelTracking()
             let alert = NSAlert()
             alert.messageText = L("Couldn’t Change Launch at Login")
             alert.informativeText = error.localizedDescription + "\n\n" + L("Move the app to Applications and try again, or add it manually: System Settings → General → Login Items.")
